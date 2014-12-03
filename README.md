@@ -11,8 +11,7 @@ inheritance).
 Example:
 --------
 
-~~
-var Class = require("Class.js");        //The class declarator itself.
+~~var Class = require("Class.js");        //The class declarator itself.
 var Private = Class.Private;
 var Protected = Class.Protected;
 var Public = Class.Public;
@@ -77,8 +76,7 @@ var Sample = new class("Sample", {
 });
 
 var sample = Sample.getInstance();
-console.log(sample.getInstanceCount());
-~~
+console.log(sample.getInstanceCount());~~
 
 WeakMap.js
 ==========
@@ -107,8 +105,7 @@ used when a callback is needed.
 Example
 -------
 
-~~
-var Functor = require("Functor");
+~~var Functor = require("Functor");
 
 var someObj = {
     count: 7
@@ -118,8 +115,7 @@ var method = new Functor(someObj, function() {
     console.log(++this.count);
 });
 
-window.setTimeout(method, 1000);        //Prints "8" 1 second later
-~~
+window.setTimeout(method, 1000);        //Prints "8" 1 second later~~
 
 Enum.js
 =======
@@ -130,8 +126,7 @@ Enum class as well.
 Example
 -------
 
-~~
-var Enum = require("Enum");
+~~var Enum = require("Enum");
 var WeekDay = new Enum("Sunday", ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]);
 
 var day = new WeekDay();    //Defaults to "Sunday"
@@ -141,8 +136,7 @@ day.name = "Friday";
 console.log(day.value);     //Prints "5"
 day.name = "?"              //Throws!
 day.value = -1;             //Throws!
-console.log(day.isEnum);    //Prints "true"
-~~
+console.log(day.isEnum);    //Prints "true"~~
 
 The enum values can be objects as well. Just declare the Enum as an object
 instead of an array.
@@ -150,9 +144,7 @@ instead of an array.
 Example
 -------
 
-~~
-var ObjectEnum = new Enum("default", {
+~~var ObjectEnum = new Enum("default", {
     default: { foo: null },
     something: { bar: function() {} },
-});
-~~
+});~~

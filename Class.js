@@ -2,15 +2,15 @@
  * Filename: Class.js
  * Created By: Ranando D. King
  * License: Apache 2.0
- * 
+ *
  * Copyright 2014 Ranando D. King
- * 
+ *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
  * You may obtain a copy of the License at
- * 
+ *
  * 		http://www.apache.org/licenses/LICENSE-2.0
- * 
+ *
  * Unless required by applicable law or agreed to in writing, software
  * distributed under the License is distributed on an "AS IS" BASIS,
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
@@ -24,27 +24,27 @@ var WeakMap = WeakMap || null;
 if (module && exports && module.exports === exports) {
     if (!Enum)
         Enum = require('./Enum');
-    
+
     if (!Functor)
         Functor = require('./Functor');
-    
+
     if (!WeakMap)
         WeakMap = require('./WeakMap');
 }
 
 //Another polyfill....
 if (!(Object.setPrototypeOf instanceof Function)) {
-	Object.defineProperty(Object, "setPrototypeOf", {
-		value: function(obj, proto) {
-			if (!(proto instanceof Object) || Array.isArray(proto))
-				throw new Error("Object.setPrototypeOf: Prototype parameter is not an object!");
-			
-			if (!(obj instanceof Object) || Array.isArray(obj))
-				throw new Error("Object.setPrototypeOf: Inheriting parameter is not an object!");
-				
-			obj.__proto__ = proto;
-		}
-	});
+    Object.defineProperty(Object, "setPrototypeOf", {
+        value: function(obj, proto) {
+            if (!(proto instanceof Object) || Array.isArray(proto))
+                throw new Error("Object.setPrototypeOf: Prototype parameter is not an object!");
+
+            if (!(obj instanceof Object) || Array.isArray(obj))
+                throw new Error("Object.setPrototypeOf: Inheriting parameter is not an object!");
+
+            obj.__proto__ = proto;
+        }
+    });
 }
 
 var Class = (function() {
@@ -61,19 +61,19 @@ var Class = (function() {
                 isProperty: property,
                 value: value
             });
-            
+
             if (this.isProtected && this.isStatic)
                 throw new Error("\"Protected Static\" scope is USELESS and therefore not allowed!");
-            
+
             if (this.isProperty && this.isFinal)
                 throw new Error("Isn't this self-contradicting? \"Final Property\" just as allowable as (+1 === -1). Just don't!");
-                
+
             if (this.isPrivate && this.isStatic && this.Property)
             	throw new Error("What exactly is the use-case for a Private Static Property? Doesn't make sense, so NO!");
-            
+
             return this;
         };
-        
+
         Object.defineProperty($$$.prototype, "isPrivate", {
             enumerable: true,
             configurable: false,
@@ -84,21 +84,21 @@ var Class = (function() {
                 internal.get(this).isPublic &= !val;
             },
         });
-        
+
         Object.defineProperty($$$.prototype, "isProtected", {
             enumerable: true,
             configurable: false,
             get: function() { return internal.get(this).isProtected; },
-            set: function(val) {                
+            set: function(val) {
                 if (this.isStatic && val)
                     throw new Error("\"Protected Static\" scope is USELESS and therefore not allowed!");
-                
+
                 internal.get(this).isProtected = val;
                 internal.get(this).isPrivate &= !val;
                 internal.get(this).isPublic &= !val;
             },
         });
-        
+
         Object.defineProperty($$$.prototype, "isPublic", {
             enumerable: true,
             configurable: false,
@@ -109,7 +109,7 @@ var Class = (function() {
                 internal.get(this).isPublic = val;
             },
         });
-        
+
         Object.defineProperty($$$.prototype, "isStatic", {
             enumerable: true,
             configurable: false,
@@ -117,35 +117,35 @@ var Class = (function() {
             set: function(val) {
                 if (this.isProtected && val)
                     throw new Error("\"Protected Static\" scope is USELESS and therefore not allowed!");
-                
+
                 internal.get(this).isStatic = val;
             },
         });
-        
+
         Object.defineProperty($$$.prototype, "isFinal", {
             enumerable: true,
             configurable: false,
             get: function() { return internal.get(this).isFinal; },
             set: function(val) { internal.get(this).isFinal = val; },
         });
-        
+
         Object.defineProperty($$$.prototype, "isProperty", {
             enumerable: true,
             configurable: false,
             get: function() { return internal.get(this).isProperty; },
             set: function(val) { internal.get(this).isProperty = val; },
         });
-        
+
         Object.defineProperty($$$.prototype, "value", {
             enumerable: true,
             configurable: false,
             get: function() { return internal.get(this).value; },
         });
-        
+
         Object.seal($$$);
         return $$$;
     })();
-    
+
     var Unbox = function(dest, source, _this) {
         var currentScope = source;
         while (Object.getPrototypeOf(currentScope)) {
@@ -159,7 +159,7 @@ var Class = (function() {
             currentScope = Object.getPrototypeOf(currentScope);
         }
     };
-    
+
     var InheritFrom = function(_class, def, protScope) {
         if (def && def.Base) {
             if (def.Base.isClass) {
@@ -167,14 +167,14 @@ var Class = (function() {
                 _class.prototype = _class.prototype || {};
                 Object.setPrototypeOf(_class.prototype, new def.Base(inherited));
                 Object.setPrototypeOf(protScope, inherited);
-        
+
                 Object.defineProperty(_class, 'InheritsFrom', {
                     enumerable: false,
                     configurable: false,
                     writable: false,
                     value: def.Base
                 });
-        
+
                 Object.defineProperty(_class.prototype, 'InheritsFrom', {
                     enumerable: false,
                     configurable: true,
@@ -193,7 +193,7 @@ var Class = (function() {
                 writable: false,
                 value: null
             });
-    
+
             Object.defineProperty(_class.prototype, 'InheritsFrom', {
                 enumerable: false,
                 configurable: true,
@@ -218,18 +218,18 @@ var Class = (function() {
 
         return retval;
     };
-    
+
     var RegisterEvents = function(_class, def, priv) {
         var eventArray = def.Events;
-        
+
         if (eventArray && !Array.isArray(eventArray))
             throw new Error("The Class Event list must be an array.");
-        
+
         Object.defineProperty(_class, 'RegisteredEvents', { value: eventArray });
-        
+
         //Collect all the events
         var eventList = CollectEvents(_class);
-        
+
         var getEvents = function() {
             if (priv.events === undefined) {
                 if (eventList.length > 0)
@@ -240,7 +240,7 @@ var Class = (function() {
 
             return priv.events;
         };
-        
+
         Object.defineProperty(_class, "Events", { get: getEvents });
         Object.defineProperty(def, "Events", { get: getEvents });
     };
@@ -263,11 +263,11 @@ var Class = (function() {
             Object.defineProperty(instance, "base", {
             	enumerable: true,
             	value: (function() {
-	            	var inst = Object.create(base.prototype);
-                    
-	            	base.apply(inst, args);
+                	var inst = Object.create(base.prototype);
+
+                	base.apply(inst, args);
                     Object.setPrototypeOf(instance, inheritance);
-	            	return inst;
+                	return inst;
             	})()
             });
 
@@ -276,7 +276,7 @@ var Class = (function() {
     };
 
     var ExpandScopeElement = function(dest, scope, key, _this) {
-        if (dest.hasOwnProperty(key)) {
+        if (dest.hasOwnProperty(key) && (scope[key] instanceof Box)) {
             var prop = scope[key];
             var isFn = prop.value instanceof Function;
             var isFinal = prop.isFinal || isFn;
@@ -331,27 +331,27 @@ var Class = (function() {
             Object.defineProperty(dest, key, propConfig);
         }
     };
-    
+
     var _$ = function Class(name, definition) {
         //If we were only supplied 1 argument, and it's not a string, just assume it's the scope.
         if ((arguments.length === 1) && (typeof name !== "string")) {
             definition = name;
             name = "";
         }
-        
+
         //Yes. Empty classes are valid!
         definition = definition || {};
         //Yes. Anonymous classes are also valid!
         name = name || "";
-        
+
         if (Object.getPrototypeOf(this).constructor !== _$)
-            throw new Error("Error! \"Class\" is a class definition constructor. You must use 'new Class(...) to use this function!");
-        
+            throw new Error("Error! \"Class\" is a class definition constructor. You must use 'new Class(...)' to use this function!");
+
         var instances = new WeakMap();
         var staticScope = {};
         var protectedScope = {};
         var constructor;
-        
+
         var initialize = function(_this, childDomain) {
         	//Build the class instance container for this instance.
             var domain = createScope(_this);
@@ -360,10 +360,10 @@ var Class = (function() {
                 "Self": { value: _this },
                 "Events": { value: definition.Events }
             });
-            
+
             //Create a copy of the class scope for the current instance.
             instances.set(_this, domain);
-  
+
             if (childDomain) {
                 //Unbox all protected elements into childDomain
                 if (childDomain.__isDescendant) {
@@ -373,14 +373,14 @@ var Class = (function() {
                             if (currentScope.hasOwnProperty(key))
                                 childDomain[key] = currentScope[key];
                         }
-                        
+
                         currentScope = Object.getPrototypeOf(currentScope);
                     }
                 }
                 else
                     Unbox(childDomain, protectedScope, domain);
             }
-            
+
             if (!(childDomain && childDomain.__isDescendant)) {
                 //Make sure the public entries point to the appropriate class.
                 var pubDomain = childDomain || domain;
@@ -391,29 +391,14 @@ var Class = (function() {
 
         var createScope = function(_this) {
             var retval = {};
-            
-            Object.defineProperties(retval, {
-            	"__isClassDomain": { enumerable: true, value: true },
-            	"__name": { enumerable: true, value: name || "<anonymous>" },
-	         	"Delegate": {
-		        	value: function(name) {
-		        		var retval = null;
-		        		if (name instanceof Function)
-		        			retval = new Functor(this, name);
-		        		else if ((typeof name === "string") && (this[name] instanceof Function))
-		        			retval = new Functor(this, this[name]);
-		        		else
-		        			throw new Error("The Delegate parameter must be either the string name of a function in the current object or a function definition!");
-		        			
-		        		return retval;
-		        	}
-		        }
-	        });
- 
+
+            Object.defineProperty(retval, "__isClassDomain", { enumerable: true, value: true });
+            Object.defineProperty(retval, "__name", { enumerable: true, value: name || "<anonymous>" });
+
             var currentScope = definition;
             while (Object.getPrototypeOf(currentScope)) {
                 for (var key in currentScope) {
-                    if (currentScope.hasOwnProperty(key) && (key != "Base") && 
+                    if (currentScope.hasOwnProperty(key) && (key != "Base") &&
                         (key != "Events") && (currentScope[key] instanceof Box)) {
                         retval[key] = null;
                         ExpandScopeElement(retval, currentScope, key, _this);
@@ -423,16 +408,16 @@ var Class = (function() {
 
                 currentScope = Object.getPrototypeOf(currentScope);
             }
-  
+
             return retval;
         };
-        
+
         var makeRedirect = function(prop, dest, src, key) {
             var isProtected = (dest === protectedScope);
         	var propConfig = {
         		enumerable: true
         	};
-                        
+
             var getRedirect = function() {
                 var instance = ((prop.isStatic && this.__isClassDomain)?staticScope:
                                 ((this.__isClassDomain)?this:instances.get(this))) || staticScope;
@@ -442,7 +427,7 @@ var Class = (function() {
                 if ((retval instanceof Function) && !retval.isFunctor)
                     retval = new Functor(instance, retval);
 
-                return retval; 
+                return retval;
             };
 
             var setRedirect = function(val) {
@@ -450,16 +435,16 @@ var Class = (function() {
                                 ((this.__isClassDomain)?this:instances.get(this))) || staticScope;
                 instance[key] = val;
             };
-            
+
             if (isProtected || (prop.isPublic && !prop.isStatic)) {
                 propConfig.get = new Functor(null, getRedirect);
-                
+
                 if (!prop.isFinal)
                     propConfig.set = new Functor(null, setRedirect);
             }
             else {
                 propConfig.get = getRedirect;
-                
+
                 if (!prop.isFinal)
                     propConfig.set = setRedirect;
             }
@@ -469,13 +454,25 @@ var Class = (function() {
         	dest[key] = new Box(prop.isPublic?Privilege.Public: (prop.isProtected?Privilege.Protected:Privilege.Private),
         						prop.isStatic, false, true, propConfig);
         };
-        
+
+        //Allows construction from private static scope
+        var Instance = function() {
+            var instance = Object.create($$.prototype);
+            var priv = constructor.isPrivate << 2 + constructor.isProtected << 1 + constructor.isPublic;
+            constructor.isPublic = true;
+            $$.call(instance, arguments);
+            constructor.isPrivate = !!(priv & 4);
+            constructor.isProtected = !!(priv & 2);
+            constructor.isPrivate = !!(priv & 1);
+            return instance;
+        };
+
         //Parses the definition parameter.
         var generateScopes = function(_class) {
             for (var key in definition) {
                 if (definition.hasOwnProperty(key)) {
                     var prop = definition[key];
-                    
+
                     // If the prop isn't boxed, then Box it as public.
                     if (!(prop instanceof Box)) {
                         prop = new Box(Privilege.Public, false, false, false, prop);
@@ -486,31 +483,36 @@ var Class = (function() {
                     switch(key) {
                         case "Base":
                         case "Events":
-	                        definition[key] = prop.value;
+                            definition[key] = prop.value;
                             //Skip this. We'll handle it later.
                             continue;
                         case "Constructor":
                         	if (prop instanceof Box) {
                         		if (prop.isStatic || prop.isProperty)
                         			throw new Error("The constructor cannot be static or a property!");
-                        			
+
                         		if (!(prop.value instanceof Function))
                         			throw new Error("The constructor must be a function!");
                         	}
-                        	constructor = prop;
+
+                            //If it's private, make it available to static methods!
+                            if (prop.isPrivate) {
+                                staticScope["Instance"] = createInstance;
+
+                            constructor = prop;
                         	delete definition[key];
                         	continue;
                         case "StaticConstructor":
-                        	if ((prop instanceof Box) && 
+                        	if ((prop instanceof Box) &&
                         	    (prop.isPrivate || prop.isProtected ||
                         	   	 prop.isProperty || prop.isFinal || prop.isStatic)) {
                         		throw "The static construct can only be marked Public!" +
-                        			  "Other privilege levels are not allowed.";                        	   	 	
-							}
-							
-							continue;
+                        			  "Other privilege levels are not allowed.";
+                            }
+
+                            continue;
                     }
-                    
+
                     //If it's a static element, move it to staticScope, and remap
                     //it as a property referencing the staticScope.
                     if (prop.isStatic) {
@@ -518,62 +520,73 @@ var Class = (function() {
                         delete definition[key];
                         makeRedirect(prop, definition, staticScope, key);
                     }
-                    
+
                     if (prop.isPublic) {
                     	makeRedirect(prop, _class.prototype, definition, key);
                     	makeRedirect(prop, protectedScope, definition, key);
-                    	
+
                     	if (prop.isStatic)
                         	makeRedirect(prop, _class, staticScope, key);
                     }
-                    
+
                     if (prop.isProtected) {
                     	makeRedirect(prop, protectedScope, definition, key);
                     }
-                    
+
                 	ExpandScopeElement(staticScope, staticScope, key);
                 	ExpandScopeElement(_class, _class, key);
                 }
             }
         };
-        
+
         eval("var $$ = function " + name + "() {\n\
+            if (!this.isClassInstance)\n\
+                throw new Error(\"This is a class instance generating function.\
+You must use 'new " + (name || "<ClassName>") + "(...)' to use this function.\");\n\
+            \n\
             console.log(\"Constructor: " + name + "\");\n\
-            var childDomain = arguments[arguments.length -1];\n\
-            initialize(this, childDomain);\n\
-       		var instance = instances.get(this);\n\
             \n\
-            if (this.InheritsFrom) {\n\
-                Super(this, instance, protectedScope);\n\
-	        }\n\
-	        \n\
-            Object.seal(instance);\n\
-            \n\
-            var args = [].slice.call(arguments, 0);\n\
-            args.pop();\n\
-            \n\
-            /* Don't let the declared constructor know we're here! */ \n\
-            if (constructor instanceof Box) {\n\
-             	if (constructor.isPublic)\n\
-	                constructor.value.apply(instance, args);\n\
+            if (!constructor ||\n\
+                ((constructor instanceof Box) &&\n\
+                 (constructor.isPublic ||\n\
+                  (childDomain && childDomain.__isClassDomain && constructor.isProtected)))) {\n\
+                var childDomain = arguments[arguments.length -1];\n\
+                childDomain = (childDomain.__isClassDomain)? childDomain: null;\n\
+                \n\
+                initialize(this, childDomain);\n\
+                var instance = instances.get(this);\n\
+                \n\
+                if (this.InheritsFrom) {\n\
+                    Super(this, instance, protectedScope);\n\
+                }\n\
+                \n\
+                Object.seal(instance);\n\
+                \n\
+                var args = [].slice.call(arguments, 0);\n\
+                args.pop();\n\
+                \n\
+                if (constructor)\n\
+                    constructor.value.apply(instance, args);\n\
             }\n\
+            else if (constructor)\n\
+                throw new Error(\"Constructor is not accessible!\");\n\
             \n\
             return this;\n\
         }");
-        
+
         //Set up the scope containers.
         generateScopes($$);
-        
+
         InheritFrom($$, definition, protectedScope);
-        
+
         RegisterEvents($$, definition, staticScope);
-        
+
         Object.defineProperty($$, "isClass", { value: true });
         Object.defineProperty($$.prototype, "isClassInstance", { value: true });
-        
+
         if (definition.StaticConstructor) {
         	definition.StaticConstructor.value();
-            
+
             //A Static constructor can only be run once for the entire class definition!
             delete definition.StaticConstructor;
         }
@@ -581,14 +594,14 @@ var Class = (function() {
         Object.seal($$);
         return $$;
     };
-    
+
     Object.defineProperty(_$, "Private", {
         enumerable: false,
         configurable: false,
         writable: false,
         value: function(val) {
             var retval = null;
-            
+
             if (val instanceof Box) {
                 if (!val.isPublic && !val.isProtected && !val.isPrivate) {
                     retval = val;
@@ -603,14 +616,14 @@ var Class = (function() {
             return retval;
         }
     });
-    
+
     Object.defineProperty(_$, "Protected", {
         enumerable: false,
         configurable: false,
         writable: false,
         value: function(val) {
             var retval = null;
-            
+
             if (val instanceof Box) {
                 if (!val.isPublic && !val.isProtected && !val.isPrivate) {
                     retval = val;
@@ -625,14 +638,14 @@ var Class = (function() {
             return retval;
         }
     });
-    
+
     Object.defineProperty(_$, "Public", {
         enumerable: false,
         configurable: false,
         writable: false,
         value: function(val) {
             var retval = null;
-            
+
             if (val instanceof Box) {
                 if (!val.isPublic && !val.isProtected && !val.isPrivate) {
                     retval = val;
@@ -647,14 +660,14 @@ var Class = (function() {
             return retval;
         }
     });
-    
+
     Object.defineProperty(_$, "Static", {
         enumerable: false,
         configurable: false,
         writable: false,
         value: function(val) {
             var retval = null;
-            
+
             if (val instanceof Box) {
                 retval = val;
                 retval.isStatic = true;
@@ -665,14 +678,14 @@ var Class = (function() {
             return retval;
         }
     });
-    
+
     Object.defineProperty(_$, "Final", {
         enumerable: false,
         configurable: false,
         writable: false,
         value: function(val) {
             var retval = null;
-            
+
             if (val instanceof Box) {
                 retval = val;
                 retval.isFinal = true;
@@ -690,7 +703,7 @@ var Class = (function() {
         writable: false,
         value: function(val) {
             var retval = null;
-            
+
             if (val instanceof Box) {
                 retval = val;
                 retval.isProperty = true;
@@ -698,7 +711,7 @@ var Class = (function() {
             else
                 retval = new Box(null, false, false, true, val);
 
-            return retval;        
+            return retval;
         }
     });
 
@@ -708,4 +721,4 @@ var Class = (function() {
 
 //If some form of require.js exists, export the class
 if (module && exports && module.exports === exports)
-	module.exports = Class;
+    module.exports = Class;

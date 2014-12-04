@@ -10,8 +10,8 @@ inheritance).
 
 Example:
 --------
-
-~~var Class = require("Class.js");        //The class declarator itself.
+```
+var Class = require("Class.js");        //The class declarator itself.
 var Private = Class.Private;
 var Protected = Class.Protected;
 var Public = Class.Public;
@@ -76,7 +76,8 @@ var Sample = new class("Sample", {
 });
 
 var sample = Sample.getInstance();
-console.log(sample.getInstanceCount());~~
+console.log(sample.getInstanceCount());
+```
 
 WeakMap.js
 ==========
@@ -105,7 +106,8 @@ used when a callback is needed.
 Example
 -------
 
-~~var Functor = require("Functor");
+```
+var Functor = require("Functor");
 
 var someObj = {
     count: 7
@@ -115,7 +117,8 @@ var method = new Functor(someObj, function() {
     console.log(++this.count);
 });
 
-window.setTimeout(method, 1000);        //Prints "8" 1 second later~~
+window.setTimeout(method, 1000);        //Prints "8" 1 second later
+```
 
 Enum.js
 =======
@@ -126,7 +129,8 @@ Enum class as well.
 Example
 -------
 
-~~var Enum = require("Enum");
+```
+var Enum = require("Enum");
 var WeekDay = new Enum("Sunday", ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]);
 
 var day = new WeekDay();    //Defaults to "Sunday"
@@ -144,7 +148,9 @@ instead of an array.
 Example
 -------
 
-~~var ObjectEnum = new Enum("default", {
+```
+var ObjectEnum = new Enum("default", {
     default: { foo: null },
     something: { bar: function() {} },
-});~~
+});
+```

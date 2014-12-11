@@ -36,10 +36,10 @@ if (module && exports && module.exports === exports) {
 if (!(Object.setPrototypeOf instanceof Function)) {
     Object.defineProperty(Object, "setPrototypeOf", {
         value: function(obj, proto) {
-            if (!(proto instanceof Object) || Array.isArray(proto))
+            if (!(typeof proto == "object") || Array.isArray(proto))
                 throw new Error("Object.setPrototypeOf: Prototype parameter is not an object!");
 
-            if (!(obj instanceof Object) || Array.isArray(obj))
+            if (!(typeof obj == "object") || Array.isArray(obj))
                 throw new Error("Object.setPrototypeOf: Inheriting parameter is not an object!");
 
             obj.__proto__ = proto;
@@ -148,10 +148,16 @@ var Class = (function() {
 
     var Unbox = function(dest, source, _this, shallow, force, ignore) {
         var currentScope = source;
+        var pType = [];
 
         //Make sure prototyping doesn't interfere with the unboxing.
-        var pType = Object.getPrototypeOf(dest);
-        Object.setPrototypeOf(dest, {});
+        if (!Array.isArray(dest))
+        	dest = [dest];
+        	
+        for (var i=0; i<dest.length; ++i) {
+        	pType.push(Object.getPrototypeOf(dest[i]));
+	        Object.setPrototypeOf(dest[i], {});
+        }
 
         if (!Array.isArray(ignore))
         	ignore = [ignore];
@@ -162,16 +168,10 @@ var Class = (function() {
         while (Object.getPrototypeOf(currentScope)) {
             for (var key in currentScope) {
                 if ((ignore.indexOf(key) < 0) && currentScope.hasOwnProperty(key)) {
-                	if (Array.isArray(dest)) {
-                		for (var i=0; i<dest.length; ++i) {
-							force[i] && (dest[i][key] = true);
-							ExpandScopeElement(dest[i], currentScope, key, _this);
-						}
-                	}
-                	else {
-						force[0] && (dest[key] = true);
-						ExpandScopeElement(dest, currentScope, key, _this);
-                    }
+            		for (var i=0; i<dest.length; ++i) {
+						force[i] && (dest[i][key] = true);
+						ExpandScopeElement(dest[i], currentScope, key, _this);
+					}
                 }
             }
 
@@ -182,7 +182,8 @@ var Class = (function() {
         }
 
         //Restore the prototype
-        Object.setPrototypeOf(dest, pType);
+        for (var i=0; i<dest.length; ++i)
+        	Object.setPrototypeOf(dest[i], pType[i]);
     };
 
     var InheritFrom = function(_class, def, protScope) {
@@ -389,7 +390,20 @@ var Class = (function() {
             //We need to manually attach the Event enum.
             Object.defineProperties(domain, {
                 "Self": { value: self || _this },
-                "Events": { value: definition.Events }
+                "Events": { value: definition.Events },
+	         	"Delegate": {
+		        	value: function(name) {
+		        		var retval = null;
+		        		if (name instanceof Function)
+		        			retval = new Functor(this, name);
+		        		else if ((typeof name === "string") && (this[name] instanceof Function))
+		        			retval = new Functor(this, this[name]);
+		        		else
+		        			throw new Error("The Delegate parameter must be either the string name of a function in the current object or a function definition!");
+		        			
+		        		return retval;
+		        	}
+		        }
             });
 
             //Create a copy of the class scope for the current instance.

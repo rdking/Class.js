@@ -146,18 +146,43 @@ var Class = (function() {
         return $$$;
     })();
 
-    var Unbox = function(dest, source, _this) {
+    var Unbox = function(dest, source, _this, shallow, force, ignore) {
         var currentScope = source;
+
+        //Make sure prototyping doesn't interfere with the unboxing.
+        var pType = Object.getPrototypeOf(dest);
+        Object.setPrototypeOf(dest, {});
+
+        if (!Array.isArray(ignore))
+        	ignore = [ignore];
+
+        if (!Array.isArray(force))
+        	force = [force];
+
         while (Object.getPrototypeOf(currentScope)) {
             for (var key in currentScope) {
-                if (currentScope.hasOwnProperty(key)) {
-                    dest[key] = true;
-                    ExpandScopeElement(dest, currentScope, key, _this);
+                if ((ignore.indexOf(key) < 0) && currentScope.hasOwnProperty(key)) {
+                	if (Array.isArray(dest)) {
+                		for (var i=0; i<dest.length; ++i) {
+							force[i] && (dest[i][key] = true);
+							ExpandScopeElement(dest[i], currentScope, key, _this);
+						}
+                	}
+                	else {
+						force[0] && (dest[key] = true);
+						ExpandScopeElement(dest, currentScope, key, _this);
+                    }
                 }
             }
 
-            currentScope = Object.getPrototypeOf(currentScope);
+			if (shallow)
+				currentScope = {};
+
+	        currentScope = Object.getPrototypeOf(currentScope);
         }
+
+        //Restore the prototype
+        Object.setPrototypeOf(dest, pType);
     };
 
     var InheritFrom = function(_class, def, protScope) {
@@ -245,7 +270,7 @@ var Class = (function() {
         Object.defineProperty(def, "Events", { get: getEvents });
     };
 
-    var Super = function(_this, instance, protScope) {
+    var Super = function(_this, instance, self) {
         console.log("Called Super!");
         if (_this._superClass) {
             _this._superClass = _this._superClass.InheritsFrom;
@@ -256,17 +281,22 @@ var Class = (function() {
 
         if (_this._superClass.InheritsFrom) {
         	var base = _this._superClass.InheritsFrom;
-            var inheritance = {};
+            var inheritance = _this.inheritance || { __isInheritedDomain: true };
             var args = [].slice.call(arguments, 0);
             args.splice(0, 2);
+          	args.push(self || _this);
             args.push(inheritance);
             Object.defineProperty(instance, "base", {
             	enumerable: true,
             	value: (function() {
                 	var inst = Object.create(base.prototype);
+                	inst.inheritance = inheritance;
 
                 	base.apply(inst, args);
+                	delete inst.inheritance;
                     Object.setPrototypeOf(instance, inheritance);
+                    var proto = Object.getPrototypeOf(_this);
+                    Object.setPrototypeOf(proto, inst);
                 	return inst;
             	})()
             });
@@ -288,7 +318,7 @@ var Class = (function() {
             };
 
             if (prop.isProperty) {
-                configurable = false;
+                propConfig.configurable = false;
 
                 if (_this) {
                     if ((prop.value.get instanceof Function) && prop.value.get.isFunctor)
@@ -345,19 +375,20 @@ var Class = (function() {
         name = name || "";
 
         if (Object.getPrototypeOf(this).constructor !== _$)
-            throw new Error("Error! \"Class\" is a class definition constructor. You must use 'new Class(...)' to use this function!");
+            throw new Error("Error! \"Class\" is a class definition constructor. " +
+            				"You must use 'new Class(...)' to use this function!");
 
         var instances = new WeakMap();
         var staticScope = {};
         var protectedScope = {};
         var constructor;
 
-        var initialize = function(_this, childDomain) {
+        var initialize = function(_this, childDomain, self) {
         	//Build the class instance container for this instance.
             var domain = createScope(_this);
             //We need to manually attach the Event enum.
             Object.defineProperties(domain, {
-                "Self": { value: _this },
+                "Self": { value: self || _this },
                 "Events": { value: definition.Events }
             });
 
@@ -366,26 +397,28 @@ var Class = (function() {
 
             if (childDomain) {
                 //Unbox all protected elements into childDomain
-                if (childDomain.__isDescendant) {
-                    var currentScope = protectedScope;
-                    while (Object.getPrototypeOf(currentScope)) {
-                        for (var key in currentScope) {
-                            if (currentScope.hasOwnProperty(key))
-                                childDomain[key] = currentScope[key];
-                        }
+                if (childDomain.__isInheritedDomain)
+					Unbox(childDomain, protectedScope, domain, false, true);
+				else {
+					//Copy the boxes into the inheriting domain for later unboxing.
+					var currentScope = protectedScope;
 
-                        currentScope = Object.getPrototypeOf(currentScope);
-                    }
-                }
-                else
-                    Unbox(childDomain, protectedScope, domain);
+					while (Object.getPrototypeOf(currentScope)) {
+						for (var key in currentScope) {
+							if (currentScope.hasOwnProperty(key))
+								childDomain[key] = currentScope[key];
+						}
+
+						currentScope = Object.getPrototypeOf(currentScope);
+					}
+				}
             }
 
-            if (!(childDomain && childDomain.__isDescendant)) {
+            if (!(childDomain && childDomain.__isClassDomain)) {
                 //Make sure the public entries point to the appropriate class.
-                var pubDomain = childDomain || domain;
-                var proto = Object.getPrototypeOf(_this).constructor.prototype;
-                Unbox(_this, proto, pubDomain);
+                //var pubDomain = childDomain || domain;
+                var proto = Object.getPrototypeOf(_this);
+                Unbox(_this, proto, domain/*pubDomain*/, true, true);
             }
         };
 
@@ -395,24 +428,25 @@ var Class = (function() {
             Object.defineProperty(retval, "__isClassDomain", { enumerable: true, value: true });
             Object.defineProperty(retval, "__name", { enumerable: true, value: name || "<anonymous>" });
 
-            var currentScope = definition;
-            while (Object.getPrototypeOf(currentScope)) {
-                for (var key in currentScope) {
-                    if (currentScope.hasOwnProperty(key) && (key != "Base") &&
-                        (key != "Events") && (currentScope[key] instanceof Box)) {
-                        retval[key] = null;
-                        ExpandScopeElement(retval, currentScope, key, _this);
-                        ExpandScopeElement(_this, currentScope, key, _this);
-                    }
-                }
-
-                currentScope = Object.getPrototypeOf(currentScope);
-            }
-
-            return retval;
+            Unbox([retval, _this], definition, _this, false, [true, false], ["Base", "Events"]);
+//             var currentScope = definition;
+//             while (Object.getPrototypeOf(currentScope)) {
+//                 for (var key in currentScope) {
+//                     if (currentScope.hasOwnProperty(key) && (key != "Base") &&
+//                         (key != "Events") && (currentScope[key] instanceof Box)) {
+//                         retval[key] = null;
+//                         ExpandScopeElement(retval, currentScope, key, _this);
+//                         ExpandScopeElement(_this, currentScope, key, _this);
+//                     }
+//                 }
+//
+//                 currentScope = Object.getPrototypeOf(currentScope);
+//             }
+//
+			return retval;
         };
 
-        var makeRedirect = function(prop, dest, src, key) {
+        var makeRedirect = function(prop, dest, key) {
             var isProtected = (dest === protectedScope);
         	var propConfig = {
         		enumerable: true
@@ -456,7 +490,7 @@ var Class = (function() {
         };
 
         //Allows construction from private static scope
-        var Instance = function() {
+        var createInstance = function() {
             var instance = Object.create($$.prototype);
             var priv = constructor.isPrivate << 2 + constructor.isProtected << 1 + constructor.isPublic;
             constructor.isPublic = true;
@@ -496,8 +530,8 @@ var Class = (function() {
                         	}
 
                             //If it's private, make it available to static methods!
-                            if (prop.isPrivate) {
-                                staticScope["Instance"] = createInstance;
+                            if (prop.isPrivate)
+                                staticScope.Instance = createInstance;
 
                             constructor = prop;
                         	delete definition[key];
@@ -518,19 +552,19 @@ var Class = (function() {
                     if (prop.isStatic) {
                         staticScope[key] = prop;
                         delete definition[key];
-                        makeRedirect(prop, definition, staticScope, key);
+                        makeRedirect(prop, definition, key);
                     }
 
                     if (prop.isPublic) {
-                    	makeRedirect(prop, _class.prototype, definition, key);
-                    	makeRedirect(prop, protectedScope, definition, key);
+                    	makeRedirect(prop, _class.prototype, key);
+                    	makeRedirect(prop, protectedScope, key);
 
                     	if (prop.isStatic)
-                        	makeRedirect(prop, _class, staticScope, key);
+                        	makeRedirect(prop, _class, key);
                     }
 
                     if (prop.isProtected) {
-                    	makeRedirect(prop, protectedScope, definition, key);
+                    	makeRedirect(prop, protectedScope, key);
                     }
 
                 	ExpandScopeElement(staticScope, staticScope, key);
@@ -539,6 +573,7 @@ var Class = (function() {
             }
         };
 
+
         eval("var $$ = function " + name + "() {\n\
             if (!this.isClassInstance)\n\
                 throw new Error(\"This is a class instance generating function.\
@@ -546,18 +581,24 @@ You must use 'new " + (name || "<ClassName>") + "(...)' to use this function.\")
             \n\
             console.log(\"Constructor: " + name + "\");\n\
             \n\
+            var childDomain = arguments[arguments.length -1];\n\
+            var self = arguments[arguments.length -2];\n\
+			\n\
+            if (!(self && childDomain && ((self.isClass && childDomain.__isClassDomain) ||\n\
+        								  childDomain.__isInheritedDomain))) {\n\
+				self = null;\n\
+				childDomain = null;\n\
+            }\n\
+            \n\
             if (!constructor ||\n\
                 ((constructor instanceof Box) &&\n\
                  (constructor.isPublic ||\n\
                   (childDomain && childDomain.__isClassDomain && constructor.isProtected)))) {\n\
-                var childDomain = arguments[arguments.length -1];\n\
-                childDomain = (childDomain.__isClassDomain)? childDomain: null;\n\
-                \n\
-                initialize(this, childDomain);\n\
+                initialize(this, childDomain, self);\n\
                 var instance = instances.get(this);\n\
                 \n\
                 if (this.InheritsFrom) {\n\
-                    Super(this, instance, protectedScope);\n\
+                    Super(this, instance, self);\n\
                 }\n\
                 \n\
                 Object.seal(instance);\n\

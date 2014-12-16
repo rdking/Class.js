@@ -187,25 +187,25 @@ var Class = (function() {
     };
 
     var InheritFrom = function(_class, def, protScope) {
-        if (def && def.Base) {
-            if (def.Base.isClass) {
+        if (def && def.Extends) {
+            if (def.Extends.isClass) {
                 var inherited = { __isDescendant: true };
                 _class.prototype = _class.prototype || {};
-                Object.setPrototypeOf(_class.prototype, new def.Base(inherited));
+                Object.setPrototypeOf(_class.prototype, new def.Extends(inherited));
                 Object.setPrototypeOf(protScope, inherited);
 
                 Object.defineProperty(_class, 'InheritsFrom', {
                     enumerable: false,
                     configurable: false,
                     writable: false,
-                    value: def.Base
+                    value: def.Extends
                 });
 
                 Object.defineProperty(_class.prototype, 'InheritsFrom', {
                     enumerable: false,
                     configurable: true,
                     writable: false,
-                    value: def.Base
+                    value: def.Extends
                 });
             }
             else
@@ -270,6 +270,14 @@ var Class = (function() {
         Object.defineProperty(_class, "Events", { get: getEvents });
         Object.defineProperty(def, "Events", { get: getEvents });
     };
+    
+    var Extend = function(dest, src) {
+       for (var key in src) {
+           var value = src[key];
+           if (src.hasOwnProperty(key) && (value instanceof Function) && !value.isClass)
+               Object.createProperty(dest, key, { value: value });
+       }
+    };
 
     var Super = function(_this, instance, self) {
         console.log("Called Super!");
@@ -287,20 +295,25 @@ var Class = (function() {
             args.splice(0, 2);
           	args.push(self || _this);
             args.push(inheritance);
-            Object.defineProperty(instance, "base", {
-            	enumerable: true,
-            	value: (function() {
-                	var inst = Object.create(base.prototype);
-                	inst.inheritance = inheritance;
 
-                	base.apply(inst, args);
-                	delete inst.inheritance;
-                    Object.setPrototypeOf(instance, inheritance);
-                    var proto = Object.getPrototypeOf(_this);
-                    Object.setPrototypeOf(proto, inst);
-                	return inst;
-            	})()
-            });
+            //Instantiate a new copy of the base class
+            var inst = Object.create(base.prototype);
+            //Make the base class aware we're picking up goodies
+            inst.inheritance = inheritance;
+            //Call the constructor
+            base.apply(inst, args);
+            //Get rid of the evidence that we peeked at the parent.
+            delete inst.inheritance;
+            //Attach the inheritance to our domain. Now we know everything!
+            Object.setPrototypeOf(instance, inheritance);
+            //Attach our new super-instance as our prototype so we get a full public interface with no boxes.
+            var proto = Object.getPrototypeOf(_this);
+            Object.setPrototypeOf(proto, inst);
+            //If we have a super-constructor, attach our inheritance to it
+            if (instance.Super)
+                Extend(instance.Super, inheritance);
+            else //Otherwise attach the inheritance as Super on instance
+                Object.defineProperty(instance, "Super", { value: inheritance });
 
             delete _this._superClass;
         }
@@ -309,7 +322,7 @@ var Class = (function() {
     var ExpandScopeElement = function(dest, scope, key, _this) {
         if (dest.hasOwnProperty(key) && (scope[key] instanceof Box)) {
             var prop = scope[key];
-            var isFn = prop.value instanceof Function;
+            var isFn = (prop.value instanceof Function && !prop.value.isClass);
             var isFinal = prop.isFinal || isFn;
 
             //Handle the default case. The privilege level doesn't matter for that.
@@ -399,7 +412,8 @@ var Class = (function() {
 		        		else if ((typeof name === "string") && (this[name] instanceof Function))
 		        			retval = new Functor(this, this[name]);
 		        		else
-		        			throw new Error("The Delegate parameter must be either the string name of a function in the current object or a function definition!");
+		        			throw new Error("The Delegate parameter must be either the string name of " +
+                                            "a function in the current object or a function definition!");
 		        			
 		        		return retval;
 		        	}
@@ -411,8 +425,13 @@ var Class = (function() {
 
             if (childDomain) {
                 //Unbox all protected elements into childDomain
-                if (childDomain.__isInheritedDomain)
+                if (childDomain.__isInheritedDomain) {
 					Unbox(childDomain, protectedScope, domain, false, true);
+                    
+                    if ((constructor instanceof Box) && constructor.isPublic || constructor.isProtected) {
+                        ExpandScopeElement(childDomain, { Super: Constructor}, "Super", domain);
+                    }
+                }
 				else {
 					//Copy the boxes into the inheriting domain for later unboxing.
 					var currentScope = protectedScope;
@@ -442,21 +461,7 @@ var Class = (function() {
             Object.defineProperty(retval, "__isClassDomain", { enumerable: true, value: true });
             Object.defineProperty(retval, "__name", { enumerable: true, value: name || "<anonymous>" });
 
-            Unbox([retval, _this], definition, _this, false, [true, false], ["Base", "Events"]);
-//             var currentScope = definition;
-//             while (Object.getPrototypeOf(currentScope)) {
-//                 for (var key in currentScope) {
-//                     if (currentScope.hasOwnProperty(key) && (key != "Base") &&
-//                         (key != "Events") && (currentScope[key] instanceof Box)) {
-//                         retval[key] = null;
-//                         ExpandScopeElement(retval, currentScope, key, _this);
-//                         ExpandScopeElement(_this, currentScope, key, _this);
-//                     }
-//                 }
-//
-//                 currentScope = Object.getPrototypeOf(currentScope);
-//             }
-//
+            Unbox([retval, _this], definition, _this, false, [true, false], ["Extends", "Events"]);
 			return retval;
         };
 
@@ -514,9 +519,50 @@ var Class = (function() {
             constructor.isPrivate = !!(priv & 1);
             return instance;
         };
+        
+        //Test to see if definition matches the given interface.
+        var hasInterface = function(iface) {
+            var obj = iface;
+            var retval = true;
+            
+            if ((obj instanceof Function) && obj.isClass)
+                obj = obj.prototype;
+            
+            for (var key in obj) {
+                if (obj.hasOwnProperty(key)) {
+                    var value = obj[key];
+                    
+                    if (definition.hasOwnProperty(key)) {
+                        var box = definition[key];
+                        
+                        if (box instanceof Box) {
+                            if (box.isPublic) {
+                                if ((value instanceof Function) && !value.isClass)
+                                    retval = (box.value instanceof Function) && !box.value.isClass;
+                                else 
+                                    retval = box.isProperty;
+                            }
+                            else
+                                retval = false;
+                        }
+                        else
+                            retval = false;
+                    }
+                    else
+                        retval = false;
+                }
+                
+                if (!retval)
+                    break;
+            }
+            
+            return retval;
+        };
 
         //Parses the definition parameter.
         var generateScopes = function(_class) {
+            var hasInterfaces = false;
+            
             for (var key in definition) {
                 if (definition.hasOwnProperty(key)) {
                     var prop = definition[key];
@@ -529,7 +575,27 @@ var Class = (function() {
 
                     //There are a few special keys to contend with....
                     switch(key) {
-                        case "Base":
+                        case "Implements":
+                            if (Array.isArray(prop.value)) {
+                                for (var key in prop.value) {
+                                    if (prop.value.hasOwnProperty(key)) {
+                                        var value = prop.value[key];
+                                        
+                                        if ((typeof value !== "object") ||
+                                            Array.isArray(value) ||
+                                            ((value instanceof Function) && !value.isClass)) {
+                                            throw new TypeError ("Invalid interface found in \"Implements\" array!");
+                                        }
+                                    }
+                                }
+                                
+                                hasInterfaces = true;
+                            }
+                            else
+                                throw new TypeError("Implements must be an array of objects or classes");
+                            
+                            //Intentional fall through to next block.
+                        case "Extends":
                         case "Events":
                             definition[key] = prop.value;
                             //Skip this. We'll handle it later.
@@ -543,8 +609,8 @@ var Class = (function() {
                         			throw new Error("The constructor must be a function!");
                         	}
 
-                            //If it's private, make it available to static methods!
-                            if (prop.isPrivate)
+                            //If it's not public, make it available to static methods!
+                            if (!prop.isPublic)
                                 staticScope.Instance = createInstance;
 
                             constructor = prop;
@@ -585,6 +651,20 @@ var Class = (function() {
                 	ExpandScopeElement(_class, _class, key);
                 }
             }
+            
+            if (hasInterfaces) {
+                var matches = true;
+                var lastIndex = -1;
+                var ifaces = definition.Interfaces;
+                
+                for (var i=0; !matches && (i<ifaces.length); ++i) {
+                    lastIndex = i;
+                    matches &= hasInterface(ifaces[key]);
+                }
+
+                if (!matches)
+                    throw new TypeError("Class does not implement interface at index " + lastindex + "!");
+            }
         };
 
 
@@ -597,11 +677,14 @@ You must use 'new " + (name || "<ClassName>") + "(...)' to use this function.\")
             \n\
             var childDomain = arguments[arguments.length -1];\n\
             var self = arguments[arguments.length -2];\n\
+			var argc = arguments.length - 2;\n\
+			\n\
 			\n\
             if (!(self && childDomain && ((self.isClass && childDomain.__isClassDomain) ||\n\
         								  childDomain.__isInheritedDomain))) {\n\
 				self = null;\n\
 				childDomain = null;\n\
+				argc += 2;\n\
             }\n\
             \n\
             if (!constructor ||\n\
@@ -617,10 +700,9 @@ You must use 'new " + (name || "<ClassName>") + "(...)' to use this function.\")
                 \n\
                 Object.seal(instance);\n\
                 \n\
-                var args = [].slice.call(arguments, 0);\n\
-                args.pop();\n\
+                var args = [].slice.call(arguments, 0, argc);\n\
                 \n\
-                if (constructor)\n\
+                if (constructor && !childDomain)\n\
                     constructor.value.apply(instance, args);\n\
             }\n\
             else if (constructor)\n\

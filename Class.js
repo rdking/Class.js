@@ -419,7 +419,6 @@ var Class = (function() {
             var domain = createScope(_this);
             //We need to manually attach the Event enum.
             Object.defineProperties(domain, {
-                "Implements": { enumerable: true, value: hasInterface },
                 "Self": { enumerable: true, value: self || _this },
                 "Events": { enumerable: true, value: definition.Events },
              	"Delegate": {
@@ -478,7 +477,7 @@ var Class = (function() {
                     isClassInstance: oldProto.isClassInstance,
                     constructor: oldProto.constructor
                 };
-                
+
                 Unbox(proto, publicScope, domain, true, true);
                 Object.setPrototypeOf(_this, proto);
 
@@ -703,6 +702,15 @@ var Class = (function() {
 
                 if (!matches)
                     throw new TypeError("Class does not implement interface at index " + lastindex + "!");
+
+                //Make a Static function for hasInterface as "Implements"
+                var prop = new Box(Privilege.Public, true, false, false, hasInterface);
+                var key = "Implements";
+                staticScope[key] = prop;
+                makeRedirect(prop, definition, key);
+                makeRedirect(prop, _class, key);
+                ExpandScopeElement(staticScope, staticScope, key);
+            	ExpandScopeElement(_class, _class, key);
             }
         };
 

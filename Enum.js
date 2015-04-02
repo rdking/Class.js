@@ -67,79 +67,90 @@ var Enum = function Enum(defValName, params) {
 			value: new $(value)
 		});
 	};
+    
+    Object.defineProperties($, {
+        isMember: {
+            enumerable: true,
+            value: function isMember(obj) {
+                var retval = false;
+               
+                if (obj && obj.isEnum)
+                    retval = (params[obj.name] === obj.value);
+                
+                return retval;
+            }
+        },
+        isEnumType: { value: true }
+    });
 	
-	Object.defineProperty($.prototype, "isEnum", { value: true });
-	
-	Object.defineProperty($.prototype, "valueOf", {
-		enumerable: false,
-		configurable: false,
-		writable: false,
-		value: function() { return this.value; }
-	});
-	
-	Object.defineProperty($.prototype, "_value", {
-		enumerable: false,
-		configurable: false,
-		writable: true,
-		value: null
-	});
-	
-	Object.defineProperty($.prototype, "name", {
-		enumerable: true,
-		configurable: false,
-		get: function() {
-			var retval;
-			for (var key in params)
-				if (params.hasOwnProperty(key) && (params[key] === this._value)) {
-					retval = key;
-					break;
-				}
-			
-			return retval;
-		},
-		set: function(n) {
-			if (params.hasOwnProperty(n))
-				this._value = params[n];
-			else
-				throw new Error("Element name '" + n + "' is not a member of this Enum!");
-		}
-	});
-	
-	Object.defineProperty($.prototype, "value", {
-		enumerable: true,
-		configurable: false,
-		get: function() { return this._value; },
-		set: function(v) {
-			if (this._value != v) {
-				for (var key in params)
-					if (params.hasOwnProperty(key) && (params[key] === v)) {
-						this._value = v;
-						break;
-					}
-				
-				if (this._value != v)
-					throw new Error("Element value '" + v + "' is not a member of this Enum!");
-			}
-		}
-	});
-	
-	Object.defineProperty($.prototype, "toString", {
-		enumerable: false,
-		configurable: false,
-		writable: false,
-		value: function() {
-			return this._value.toString() + " (" + this.name +")";
-		}
-	});
-	
-	Object.defineProperty($.prototype, "toJSON", {
-		enumerable: false,
-		configurable: false,
-		writable: false,
-		value: function() {
-			return { name: this.name, value: this._value };
-		}
-	});
+	Object.defineProperties($.prototype, {
+        "isEnum": { value: true },
+        "valueOf": {
+            enumerable: false,
+            configurable: false,
+            writable: false,
+            value: function() { return this.value; }
+        },
+        "_value": {
+            enumerable: false,
+            configurable: false,
+            writable: true,
+            value: null
+        },
+        "name": {
+            enumerable: true,
+            configurable: false,
+            get: function() {
+                var retval;
+                for (var key in params)
+                    if (params.hasOwnProperty(key) && (params[key] === this._value)) {
+                        retval = key;
+                        break;
+                    }
+
+                return retval;
+            },
+            set: function(n) {
+                if (params.hasOwnProperty(n))
+                    this._value = params[n];
+                else
+                    throw new Error("Element name '" + n + "' is not a member of this Enum!");
+            }
+        },
+        "value": {
+            enumerable: true,
+            configurable: false,
+            get: function() { return this._value; },
+            set: function(v) {
+                if (this._value != v) {
+                    for (var key in params)
+                        if (params.hasOwnProperty(key) && (params[key] === v)) {
+                            this._value = v;
+                            break;
+                        }
+
+                    if (this._value != v)
+                        throw new Error("Element value '" + v + "' is not a member of this Enum!");
+                }
+            }
+        },
+        "toString": {
+            enumerable: false,
+            configurable: false,
+            writable: false,
+            value: function() {
+                return this._value.toString() + " (" + this.name +")";
+            }
+        },
+        "toJSON": {
+            enumerable: false,
+            configurable: false,
+            writable: false,
+            value: function() {
+                return { name: this.name, value: this._value };
+            }
+        }
+    });
 	
 	if (Array.isArray(params)) {
 		var len = params.length;

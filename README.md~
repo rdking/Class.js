@@ -51,8 +51,6 @@ var SampleBase = new Class("SampleBase", {
 
 //Declare descendant class Sample as a singleton
 var Sample = new class("Sample", {
-    Extends: SampleBase,
-
     //Private Static Data
     instance: Private(Static(null)),
 
@@ -156,11 +154,3 @@ var ObjectEnum = new Enum("default", {
     something: { bar: function() {} },
 });
 ```
-
-A Tutorial on this Class.js Library
-===================================
-
-Since this readme can't really convey enough about how to use Class.js, I'm
-making a Wiki tutorial to explain the ins and outs of the library.
-
-http://thekingsnotice.blogspot.com/2015/03/oojs-5-re-introducing-classjs.html

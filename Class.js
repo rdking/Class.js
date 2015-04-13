@@ -74,9 +74,6 @@ var Class = (function() {
                 value: value
             });
 
-            if (this.isProtected && this.isStatic)
-                throw new Error("\"Protected Static\" scope is USELESS and therefore not allowed!");
-
             if (this.isProperty && this.isFinal)
                 throw new Error("Isn't this self-contradicting? \"Final Property\" just as allowable as (+1 === -1). Just don't!");
 
@@ -104,9 +101,6 @@ var Class = (function() {
                 enumerable: true,
                 get: function() { return internal.get(this).isProtected; },
                 set: function(val) {
-                    if (this.isStatic && val)
-                        throw new Error("\"Protected Static\" scope is USELESS and therefore not allowed!");
-
                     internal.get(this).isProtected = val;
                     internal.get(this).isPrivate &= !val;
                     internal.get(this).isPublic &= !val;
@@ -124,12 +118,7 @@ var Class = (function() {
             isStatic: {
                 enumerable: true,
                 get: function() { return internal.get(this).isStatic; },
-                set: function(val) {
-                    if (this.isProtected && val)
-                        throw new Error("\"Protected Static\" scope is USELESS and therefore not allowed!");
-
-                    internal.get(this).isStatic = val;
-                }
+                set: function(val) { internal.get(this).isStatic = val; }
             },
             isFinal: {
                 enumerable: true,
@@ -303,10 +292,9 @@ var Class = (function() {
 
         var obj = _class;
         do {
-            for (var event in obj.RegisteredEvents) {
-                if (obj.RegisteredEvents.hasOwnProperty(event))
-                    retval.push(obj.RegisteredEvents[event]);
-            }
+            var events = obj.RegisteredEvents || [];
+            for (var i=0; i<events.length; ++i)
+                retval.push(events[i]);
 
             obj = obj.InheritsFrom;
         } while (obj);
@@ -324,19 +312,18 @@ var Class = (function() {
 
         //Collect all the events
         var eventList = CollectEvents(_class);
+        var EventEnum = (eventList.length)?new Enum(eventList[0], eventList):null;
 
+        //We do it this way to prevent the base scope's events from binding to all
+        //child scopes!
         var getEvents = function() {
-            if (priv.events === undefined) {
-                if (eventList.length > 0)
-                    priv.events = new Enum(eventList[0], eventList);
-                else
-                    priv.events = null;
-            }
-
-            return priv.events;
+            return EventEnum;
         };
 
+        //Make sure the Events enum is defined on every scope!
+        Object.defineProperty(priv, "Events", { get: getEvents });
         Object.defineProperty(_class, "Events", { get: getEvents });
+        Object.defineProperty(_class.prototype, "Events", { get: getEvents });
         Object.defineProperty(def, "Events", { get: getEvents });
     };
 

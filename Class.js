@@ -493,6 +493,31 @@ var Class = (function() {
             //We need to manually attach the Event enum.
             Object.defineProperties(domain, {
                 "Self": { enumerable: true, value: self || _this },
+                "Sibling": {
+                    enumerable: true,
+                    //Retrieve the private scope of obj if it's class is or descends from ours.
+                    value: function getSibling(obj) {
+                        var retval = null;
+                        var ourProto = Object.getPrototypeOf(this.Self);
+
+                        if (ourProto.isPrototypeOf(obj)) {
+                            retval = instances[obj];
+                            var sibling = obj;
+                            var theirProto = Object.getPrototypeOf(sibling);
+
+                            //Be careful! We don't want access to those things the current instance
+                            //shouldn't know about it's sibling!
+                            while (theirProto !== ourProto) {
+                                retval = Object.getPrototypeOf(retval);
+                                sibling = theirProto;
+                                theirProto = Object.getPrototypeOf(sibling);
+                            }
+                        }
+                        else
+                            throw new ReferenceError("The class of the parameter does not have the class of the current instance as an Ancestor!\nCannot retrieve private scope!");
+                        return retval;
+                    }
+                },
                 "Events": { enumerable: true, value: definition.Events },
              	"Delegate": {
                     enumerable: true,
@@ -710,7 +735,7 @@ var Class = (function() {
 
                             //If it's not public, make it available to static methods!
                             if (!prop.isPublic)
-                                staticScope.Instance = createInstance;
+                                staticScope.CreateInstance = createInstance;
 
                             classConstructor = prop;
                         	delete definition[key];

@@ -20,6 +20,8 @@
 
 var Enum = function Enum(defValName, params) {
 	var $ = function EnumType(param) {
+        var self = this;
+
 		if ((param !== null) && (param !== undefined)) {
 			var n;
 			var v;
@@ -53,9 +55,14 @@ var Enum = function Enum(defValName, params) {
 				((n !== undefined) && (v !== undefined) &&
 				 (this.value !== v) && (this.name != n)))
 				throw new Error("Parameter '" + param + "' is not a name or value match for any member of this Enum!");
+            else if (Object.isFrozen($))
+                self = $[this.name];
 		}
-		else
-			this.value = params[defValName];
+		else {
+			self = $[defValName];
+        }
+
+        return self;
 	};
 	var validDefault = false;
 	
@@ -66,6 +73,8 @@ var Enum = function Enum(defValName, params) {
 			writable: false,
 			value: new $(value)
 		});
+
+        Object.freeze($[key]);
 	};
     
     Object.defineProperties($, {

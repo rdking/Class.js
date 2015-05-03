@@ -203,7 +203,7 @@ var Class = (function() {
         if (def && def.Extends) {
             //If it's a non-final Class.js class.
             if (def.Extends.isClass) {
-                if (def.Extends.classMode === Class.ClassModes.Final))
+                if (def.Extends.classMode === Class.ClassModes.Final)
                     throw new SyntaxError("Cannot extend a Final Class!");
                 
                 var inherited = {};
@@ -638,7 +638,7 @@ var Class = (function() {
         	//Put a new property on the destination that references the
         	//redirected object.
         	dest[key] = new Box(prop.isPublic?Privilege.Public: (prop.isProtected?Privilege.Protected:Privilege.Private),
-        						prop.isStatic, false, true, propConfig);
+        						prop.isStatic, false, true, false, propConfig);
         };
 
         //Allows construction from private static scope
@@ -674,7 +674,7 @@ var Class = (function() {
 
                     // If the prop isn't boxed, then Box it as public.
                     if (!(prop instanceof Box)) {
-                        prop = new Box(Privilege.Public, false, false, false, prop);
+                        prop = new Box(Privilege.Public, false, false, false, false, prop);
                         definition[key] = prop;
                     }
 
@@ -797,7 +797,7 @@ var Class = (function() {
                     throw new TypeError("Class does not implement interface at index " + lastindex + "!");
 
                 //Make a Static function for hasInterface as "Implements"
-                var prop = new Box(Privilege.Public, true, false, false, hasInterface);
+                var prop = new Box(Privilege.Public, true, false, false, false, hasInterface);
                 var key = "Implements";
                 staticScope[key] = prop;
                 makeRedirect(prop, definition, key);
@@ -833,7 +833,7 @@ var Class = (function() {
                 \n\
             }\n\
             \n\
-            if (($$.classMode === Class.ClassMode.Abstract) &&\n\
+            if (($$.classMode === Class.ClassModes.Abstract) &&\n\
                 (!childDomain || !childDomain.__isInheritedDomain))\n\
                 throw new SyntaxError(\"Cannot construct an Abstract Class!\");\n\
             \n\
@@ -1025,7 +1025,7 @@ var Class = (function() {
                         throw new SyntaxError("Only member functions can be Delegates!");
                 }
                 else if ((val instanceof Function) && !val.isClass)
-                    retval = new Box(null, false, false, false, false, true, val);
+                    retval = new Box(null, false, false, false, true, val);
                 else
                     throw new SyntaxError("Only member functions can be Delegates!");
 

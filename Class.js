@@ -189,7 +189,7 @@ var Class = (function() {
             var i = 0;
             try {
                 for (; i<list.length; ++i)
-                    Extend(instance, list[i], true);
+                    Extend(instance, list[i]);
             }
             catch(e) {
                 throw new TypeError("Members of Mixin at index " + i + " conflict with pre-existing members!");
@@ -197,7 +197,7 @@ var Class = (function() {
         }
     };
 
-    var InheritFrom = function(_class, def, protScope) {
+    var InheritFrom = function(_class, def, protScope, statScope) {
         _class.prototype = _class.prototype || {};
 
         if (def && def.Extends) {
@@ -215,6 +215,18 @@ var Class = (function() {
                 delete inherited.__isDescendant;
                 
                 Object.setPrototypeOf(protScope, inherited);
+
+                //Copy the static inherited parts to staticScope
+                for (var key in inherited) {
+                    if (inherited.hasOwnProperty(key)) {
+                        var value = inherited[key];
+
+                        if (value.isBox && value.isStatic && !statScope.hasOwnProperty(key)) {
+                            statScope[key] = true;
+                            ExpandScopeElement(statScope, inherited, key, statScope);
+                        }
+                    }
+                }
 
                 Object.defineProperty(_class, 'InheritsFrom', {
                     enumerable: false,
@@ -327,16 +339,23 @@ var Class = (function() {
         Object.defineProperty(def, "Events", { get: getEvents });
     };
 
-    var Extend = function(dest, src, full) {
+    var Extend = function(dest, src) {
         var proto = Object.getPrototypeOf(dest);
         if (!(proto === Function.prototype))
             Object.setPrototypeOf(dest, null);
 
+        var makeExtendProperty = function makeExtendProperty(obj, key) {
+            if (!obj.hasOwnProperty(key))
+                Object.defineProperty(obj, key, {
+                    enumerable: true,
+                    get: function extendGetter() { return src[key]; },
+                    set: function extendSetter(val) { src[key] = val }
+                });
+        }
+
         for (var key in src) {
-            var value = src[key];
             if (src.hasOwnProperty(key)) {
-                if (full || ((value instanceof Function) && !value.isClass))
-                    Object.defineProperty(dest, key, { enumerable: true, value: value });
+                makeExtendProperty(dest, key);
             }
         }
 
@@ -681,7 +700,7 @@ var Class = (function() {
                     //There are a few special keys to contend with....
                     switch(key) {
                         case "Mode":
-                            if (!prop.value instanceof Class.ClassModes)
+                            if (Class.ClassModes.isMember(prop.value))
                                 _classMode = prop.value;
                             else
                                 throw new SyntaxError("Invalid Mode set for this Class!");
@@ -834,7 +853,7 @@ var Class = (function() {
             }\n\
             \n\
             if (($$.classMode === Class.ClassModes.Abstract) &&\n\
-                (!childDomain || !childDomain.__isInheritedDomain))\n\
+                (!childDomain || !(childDomain.__isInheritedDomain || childDomain.__isDescendant)))\n\
                 throw new SyntaxError(\"Cannot construct an Abstract Class!\");\n\
             \n\
             if (!classConstructor ||\n\
@@ -867,7 +886,7 @@ var Class = (function() {
         //Set up the scope containers.
         generateScopes($$);
 
-        InheritFrom($$, definition, protectedScope);
+        InheritFrom($$, definition, protectedScope, staticScope);
 
         RegisterEvents($$, definition, staticScope);
 
@@ -878,7 +897,7 @@ var Class = (function() {
         Object.defineProperty($$.prototype, "isClassInstance", { value: true });
 
         if (definition.StaticConstructor) {
-        	definition.StaticConstructor.value();
+        	definition.StaticConstructor.value.call(staticScope);
 
             //A Static constructor can only be run once for the entire class definition!
             delete definition.StaticConstructor;

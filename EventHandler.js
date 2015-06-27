@@ -12,6 +12,9 @@ var EventHandler = new Class("EventHandler", {
 	
     //Private methods
     addListener: Private(function addListener(evnt, fn, once){
+        if (this.listeners == null)
+            this.listeners = {};
+
 		if (fn instanceof Function) {
 			if (!this.listeners.hasOwnProperty(evnt))
 				this.listeners[evnt] = [];
@@ -27,11 +30,6 @@ var EventHandler = new Class("EventHandler", {
         setTimeout(this.Delegate(function runDeferredCall() {
             fn.apply(this, params);
         }), 0);
-    }),
-
-    //Constructor
-    Constructor: Public(function createEventHandler() {
-        this.listeners = {};
     }),
 
     //Public Methods
@@ -69,7 +67,26 @@ var EventHandler = new Class("EventHandler", {
             
             this.listeners[evnt] = keep;
 		}
+	}),
+	fireEventSync: Public(function fireEvent(evnt, params) {
+		if (this.listeners.hasOwnProperty(evnt)) {
+			var handlers = this.listeners[evnt];
+            var keep = [];
+
+            console.log("Processing event: " + evnt);
+			for (var i=0; i<handlers.length; ++i) {
+                var handler = handlers[i];
+                //Handle this event now...
+				handler.handler(params);
+
+                if (!handler.once)
+                    keep.push(handler);
+            }
+
+            this.listeners[evnt] = keep;
+		}
 	})
+
 });
 
 module.exports = EventHandler;

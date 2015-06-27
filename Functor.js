@@ -23,18 +23,27 @@ var Functor = (function() {
             return method.apply(obj, arguments);
         };
 
-        Object.defineProperty(retval, "_this", {
-            get: function() { return obj; },
-            set: function(val) { obj = val; }
-        });
+        Object.defineProperties(retval, {
+            "_this": {
+                get: function() { return obj; },
+                set: function(val) { obj = val; }
+            },
+            isFunctor: {
+                value: true
+            },
+            apply: {
+                enumerable: true,
+                value: function apply(owner, params) {
+                    if (owner === undefined)
+                        owner = obj;
 
-        Object.defineProperty(retval, "isFunctor", {
-            value: true
-        });
-
-        Object.defineProperty(retval, "rescope", {
-            value: function(newObj) {
-                return new Functor(newObj, method);
+                    method.apply(owner, params);
+                }
+            },
+            rescope: {
+                value: function(newObj) {
+                    return new Functor(newObj, method);
+                }
             }
         });
 

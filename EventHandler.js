@@ -8,7 +8,7 @@ var Property = Class.Property;
 
 var EventHandler = new Class("EventHandler", {
     //Private members
-	listeners: Private({}),
+	listeners: Private(null),
 	
     //Private methods
     addListener: Private(function addListener(evnt, fn, once){
@@ -22,6 +22,19 @@ var EventHandler = new Class("EventHandler", {
 			throw TypeError("Only functions can be event handlers!");		
     }),
     
+    //Protected Methods
+    deferCall: Protected(function deferCall(fn, params) {
+        setTimeout(this.Delegate(function runDeferredCall() {
+            fn.apply(this, params);
+        }), 0);
+    }),
+
+    //Constructor
+    Constructor: Public(function createEventHandler() {
+        this.listeners = {};
+    }),
+
+    //Public Methods
 	addEventListener: Public(function addEventListener(evnt, fn) {
         this.addListener(evnt, fn, false);
 	}),
@@ -47,7 +60,8 @@ var EventHandler = new Class("EventHandler", {
             console.log("Processing event: " + evnt);
 			for (var i=0; i<handlers.length; ++i) {
                 var handler = handlers[i];
-				handler.handler(params);
+                //Queue the event to be handled at the next earliest convenience...
+				this.deferCall(handler.handler, [ params ]);
                 
                 if (!handler.once)
                     keep.push(handler);

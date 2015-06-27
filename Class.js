@@ -403,8 +403,7 @@ var Class = (function() {
             //Attach the inheritance to our domain. Now we know everything!
             Object.setPrototypeOf(instance, inheritance);
             //Attach the fully expanded base instance as the new prototype of this instance.
-            var proto = Object.getPrototypeOf(_this);
-            Object.setPrototypeOf(proto, inst);
+            Object.setPrototypeOf(_this, inst);
             //If we don't have a super constructor, create a dummy stub for it.
             if (!instance.Super)
                 Object.defineProperty(instance, "Super", {
@@ -752,10 +751,7 @@ var Class = (function() {
                         			throw new Error("The constructor must be a function!");
                         	}
 
-                            //If it's not public, make it available to static methods!
-                            if (!prop.isPublic)
-                                staticScope.CreateInstance = createInstance;
-
+                            staticScope.CreateInstance = createInstance;
                             classConstructor = prop;
                         	delete definition[key];
                         	continue;
@@ -867,12 +863,12 @@ var Class = (function() {
                     Super(this, instance, self);\n\
                 }\n\
                 \n\
+                if (definition.Mixins)\n\
+                    BlendMixins(definition.Mixins, instance);\n\
+                \n\
                 Object.seal(instance);\n\
                 \n\
                 var args = [].slice.call(arguments, 0, argc);\n\
-                \n\
-                if (definition.Mixins)\n\
-                    BlendMixins(definition.Mixins, instance);\n\
                 \n\
                 if (classConstructor && !childDomain)\n\
                     classConstructor.value.apply(instance, args);\n\
@@ -897,7 +893,7 @@ var Class = (function() {
         Object.defineProperty($$.prototype, "isClassInstance", { value: true });
 
         if (definition.StaticConstructor) {
-        	definition.StaticConstructor.value.call(staticScope);
+        	definition.StaticConstructor.value.call(staticScope, $$);
 
             //A Static constructor can only be run once for the entire class definition!
             delete definition.StaticConstructor;

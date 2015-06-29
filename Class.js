@@ -397,19 +397,34 @@ var Class = (function() {
             delete inheritance.__isInheritedDomain;
             if (base.isClass || base.isClassInstance)
                 delete inst.inheritance;
-            //Attach our inheritance as the prototype of the child's inheritance... if there is one.
-            if (_this.inheritance)
+            //If there's a child instance waiting for this instance to finish construction...
+            if (_this.inheritance) {
+                //Attach our inheritance to the inheritance chain.
                 Object.setPrototypeOf(_this.inheritance, inheritance);
+                //Attach the fully expanded base instance as the new prototype of this instance.
+                Object.setPrototypeOf(_this, inst);
+            }
+            else {
+                //Move the default inheritance chain down to the bottom
+                var old_proto = Object.getPrototypeOf(_this);
+
+                //Attach the fully expanded base instance as the new prototype of this instance.
+                Object.setPrototypeOf(_this, inst);
+
+                var obj = _this;
+                var proto = Object.getPrototypeOf(_this);
+
+                //Find the lowest guy on the prototype chain.
+                while (Object.getPrototypeOf(proto) != Object.prototype) {
+                    obj = proto;
+                    proto = Object.getPrototypeOf(proto);
+                }
+
+                //Hook the prototype chain down there.
+                Object.setPrototypeOf(obj, old_proto);
+            }
             //Attach the inheritance to our domain. Now we know everything!
             Object.setPrototypeOf(instance, inheritance);
-            //Attach the fully expanded base instance as the new prototype of this instance.
-            Object.setPrototypeOf(_this, inst);
-            //If we don't have a super constructor, create a dummy stub for it.
-            if (!instance.Super)
-                Object.defineProperty(instance, "Super", {
-                    enumerable: true,
-                    value: instance.Delegate(function() { this.Super(); }, true)
-                });
 
             //Now attach our inheritance to it.
             Extend(instance.Super, inheritance);
@@ -569,6 +584,16 @@ var Class = (function() {
                             enumerable: true,
                             value: domain.Delegate(classConstructor.value, true)
                         });
+                    //Otherwise fake one...
+                    else {
+                        Object.defineProperty(childDomain, "Super", {
+                            enumerable: true,
+                            value: domain.Delegate(function dummySuper() {
+                                if (this.InheritsFrom)
+                                    this.Super();
+                            }, true)
+                        });
+                    }
 
                     //Make sure the child knows who its parent is.
                     Object.defineProperty(childDomain, "__name", { value: name });
@@ -610,7 +635,7 @@ var Class = (function() {
             Object.defineProperty(retval, "__isClassDomain", { enumerable: true, value: true });
             Object.defineProperty(retval, "__name", { enumerable: true, value: name || "<anonymous>" });
             
-            Unbox(retval, definition, _this, false, ["Extends", "Events"]);
+            Unbox(retval, definition, retval, false, ["Extends", "Events"]);
             //Unbox(_this, publicScope, _this, false, ["Extends", "Events"]);
 
             return retval;

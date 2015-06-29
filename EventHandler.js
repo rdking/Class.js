@@ -28,7 +28,7 @@ var EventHandler = new Class("EventHandler", {
     //Protected Methods
     deferCall: Protected(function deferCall(fn, params) {
         setTimeout(this.Delegate(function runDeferredCall() {
-            fn.apply(this, params);
+            fn.apply(undefined, params);
         }), 0);
     }),
 

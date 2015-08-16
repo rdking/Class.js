@@ -62,7 +62,7 @@ var Class = (function() {
     var Privilege = new Enum("Public", [ "Public", "Protected", "Private" ]);
     var Box = (function() {
         var internal = new WeakMap();
-        var $$$ = function Box(priv, _static, final, property, delegate, value) {
+        var $$$ = function Box(priv, _static, final, property, delegate, value, type) {
             internal.set(this, {
                 isPrivate: (priv == Privilege.Private),
                 isProtected: (priv == Privilege.Protected),
@@ -71,6 +71,7 @@ var Class = (function() {
                 isStatic: _static,
                 isProperty: property,
                 isDelegate: delegate,
+                type: type,
                 value: value
             });
 
@@ -135,9 +136,45 @@ var Class = (function() {
                 get: function() { return internal.get(this).isDelegate; },
                 set: function(val) { internal.get(this).isDelegate = val; }
             },
+            type: {
+                enumerable: true,
+                get: function() { return internal.get(this).type; },
+                set: function(val) { internal.get(this).type = val; }
+            },
             value: {
                 enumerable: true,
                 get: function() { return internal.get(this).value; }
+            },
+            toString: {
+                enumerable: true,
+                value: function() {
+                    var retval = "{";
+
+                    var typeName = "<unknown>";
+                    if (this.type instanceof Function) {
+                        console.info("Type is a function...");
+                        if (this.type.isClass) {
+                            console.info("Type is a Class...");
+                            typeName = this.type.__name;
+                        }
+                        else {
+                            typeName = this.type.name;
+                        }
+                    }
+
+                    retval += " isPrivate=" + !!this.isPrivate;
+                    retval += " isProtected=" + !!this.isProtected;
+                    retval += " isPublic=" + !!this.isPublic;
+                    retval += " isStatic=" + !!this.isStatic;
+                    retval += " isFinal=" + !!this.isFinal;
+                    retval += " isProperty=" + !!this.isProperty;
+                    retval += " isDelegate=" + !!this.isDelegate;
+                    retval += " type=" + typeName;
+                    retval += " value=" + JSON.stringify(this.value);
+                    retval += " }";
+
+                    return retval;
+                }
             }
         });
 
@@ -349,9 +386,9 @@ var Class = (function() {
                 Object.defineProperty(obj, key, {
                     enumerable: true,
                     get: function extendGetter() { return src[key]; },
-                    set: function extendSetter(val) { src[key] = val }
+                    set: function extendSetter(val) { src[key] = val; }
                 });
-        }
+        };
 
         for (var key in src) {
             if (src.hasOwnProperty(key)) {
@@ -445,6 +482,44 @@ var Class = (function() {
                 configurable: !prop.isFinal
             };
 
+            var validateReturnType = function validateReturnType(obj) {
+                var retval;
+                if (obj instanceof Function) {
+                    retval = function validate_result() {
+                        var r2 = obj.apply(null, arguments);
+                        if ((r2 !== null) &&
+                            (r2 !== undefined) &&
+                            ((prop.type.isClass && !(r2 instanceof prop.type)) ||
+                             (prop.type.isInterface && !prop.type.isImplementedBy(r2)))) {
+                            throw new TypeError("Expected type " + prop.type.__name + ". Recevied type " + typeof(r2));
+                        }
+                    }
+                }
+                else
+                    retval = obj;
+
+                return retval;
+            }
+
+            var validateAssignType = function validateAssignType(obj) {
+                var retval = function validate_value(val) {
+                    if ((val !== null) &&
+                        (val !== undefined) &&
+                        ((prop.type.isClass && !(val instanceof prop.type)) ||
+                         (prop.type.isInterface && !prop.type.isImplementedBy(val)))) {
+                        throw new TypeError("Expected type " + prop.type.__name + ". Recevied type " + typeof(val));
+                    }
+                    else {
+                        if (obj instanceof Function)
+                            obj(val);
+                        else
+                            obj = val;
+                    }
+                }
+
+                return retval;
+            }
+
             if (prop.isProperty) {
                 propConfig.configurable = false;
 
@@ -454,10 +529,16 @@ var Class = (function() {
                     else
                         propConfig.get = prop.value.get;
 
+                    if (propConfig.get && prop.type)
+                        propConfig.get = validateReturnType(propConfig.get);
+
                     if ((prop.value.set instanceof Function) && prop.value.set.isFunctor)
                         propConfig.set = prop.value.set.rescope(_this);
                     else
                         propConfig.set = prop.value.set;
+
+                    if (propConfig.set && prop.type)
+                        propConfig.set = validateReturnType(propConfig.set);
                 }
                 else {
                     if (prop.value.get)
@@ -465,6 +546,9 @@ var Class = (function() {
 
                     if (prop.value.set)
                         propConfig.set = prop.value.set;
+
+                    if (propConfig.set && prop.type)
+                        propConfig.set = validateReturnType(propConfig.set);
 
                     if (prop.value.value) {
                         propConfig.writable = prop.value.wrtable;
@@ -477,13 +561,19 @@ var Class = (function() {
                 }
             }
             else {
-                propConfig.writable = !isFinal;
+                if (!prop.type)
+                    propConfig.writable = !isFinal;
 
                 if ((prop.value instanceof Function) && prop.value.isFunctor)
                     propConfig.value = prop.value.rescope(_this);
                 else
                     propConfig.value = prop.value;
                 
+                if (prop.type && (propConfig.value instanceof Function)) {
+                    propConfig.writable = !isFinal;
+                    propConfig.value = validateReturnType(propConfig.value);
+                }
+
                 if (prop.isDelegate) {
                     if (_this)
                         propConfig.value = new Functor(_this, propConfig.value);
@@ -704,9 +794,71 @@ var Class = (function() {
             return iface.isImplementedBy(definition);
         };
 
+        //Ensures proper handling of non-property, non-function members with types.
+        var unpackTypedMembers = function unpackTypedMembers() {
+            var types = {};
+
+            var typedProperty = function(type, skey) {
+                return {
+                    get: function getTypedProperty() { return this[skey]; },
+                    set: function setTypedProperty(val) {
+                        if ((val === null) || (val === undefined) ||
+                            (type.isClass && (val.__isClassDomain?(val.Self instanceof type):(val instanceof type))) ||
+                            (type.isInterface && type.isImplementedBy(val))) {
+                            this[skey] = val;
+                        }
+                        else {
+                            if (type.isClass)
+                                throw new TypeError("Value must be of type " + type.__name);
+                            else
+                                throw new TypeError("Value must implement the " + type.__name + " interface");
+                        }
+                    }
+                };
+            };
+
+            //Create the storage variables needed by the typed values.
+            for (var key in definition) {
+                if (definition.hasOwnProperty(key)) {
+                    var prop = definition[key];
+
+                    if ((prop instanceof Box) &&
+                        !(prop.value instanceof Function) &&
+                        !prop.isProperty && prop.type) {
+
+                        var priv = (prop.isPrivate)?Privilege.Private:(prop.isProtected)?Privilege.Protected:Privilege.Public;
+                        var skey = "_$_" + key;
+
+                        /**
+                            A typed property is really 2 property definitions in one:
+                                a storage variable for the value being checked, and
+                                a property accessor that gives read/write access
+                                to the storage variable
+                        */
+                        //Create a new box for the storage variable
+                        types[skey] = new Box(Privilege.Private, prop.isStatic, prop.isFinal,
+                                              false, false, prop.value);
+                        //Now replace definition[key] with a property definition that accesses the storage variable
+                        definition[key] = new Box(Privilege.Private, prop.isStatic, prop.isFinal,
+                                                  true, false, typedProperty(prop.type, skey));
+                    }
+                }
+            }
+
+            //Now put the newly created storage variables back into definition
+            for (var key in types) {
+                if (types.hasOwnProperty(key)) {
+                    definition[key] = types[key];
+                }
+            }
+        };
+
         //Parses the definition parameter.
         var generateScopes = function(_class) {
             var hasInterfaces = false;
+
+            //There's some extra work to be done to support type restrictions
+            unpackTypedMembers();
 
             //User controlled extra data space.
             //definition.Tag = {};
@@ -907,15 +1059,15 @@ var Class = (function() {
         //Set up the scope containers.
         generateScopes($$);
 
-        InheritFrom($$, definition, protectedScope, staticScope);
-
-        RegisterEvents($$, definition, staticScope);
-
         Object.defineProperties($$, {
+            "__name": { value: name },
             "isClass": { value: true },
             "classMode": { get: function() { return _classMode; }}
         });
         Object.defineProperty($$.prototype, "isClassInstance", { value: true });
+
+        InheritFrom($$, definition, protectedScope, staticScope);
+        RegisterEvents($$, definition, staticScope);
 
         if (definition.StaticConstructor) {
         	definition.StaticConstructor.value.call(staticScope, $$);
@@ -1068,6 +1220,49 @@ var Class = (function() {
                     retval = new Box(null, false, false, false, true, val);
                 else
                     throw new SyntaxError("Only member functions can be Delegates!");
+
+                return retval;
+            }
+        },
+        "Type": {
+            enumerable: false,
+            configurable: false,
+            writable: false,
+            value: function(type, val) {
+                var retval = null;
+
+                if (type && (type.isClass || type.isInterface)) {
+                    if (val instanceof Box) {
+                        if ((val.value === null) || (val.value === undefined) ||
+                            (type.isClass && (val.value instanceof type)) ||
+                            (type.isInterface && type.isImplementedBy(val.value)))
+                        {
+                            retval = val;
+                            retval.type = type;
+                        }
+                        else {
+                            if (type.isClass)
+                                throw new TypeError("Value must be of type " + type.__name);
+                            else
+                                throw new TypeError("Value must implement the " + type.__name + " interface");
+                        }
+                    }
+                    else {
+                        if ((type.isClass && (val instanceof type)) ||
+                            (type.isImplementedBy(val)))
+                        {
+                            retval = new Box(null, false, false, false, false, val, type)
+                        }
+                        else {
+                            if (type.isClass)
+                                throw new TypeError("Value must be of type " + type.__name);
+                            else
+                                throw new TypeError("Value must implement the " + type.__name + " interface");
+                        }
+                    }
+                }
+                else
+                    throw new TypeError("Type must reference either a Class or an Interface!");
 
                 return retval;
             }

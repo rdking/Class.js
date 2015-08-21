@@ -19,7 +19,7 @@
  */
 var Functor = (function() {
     var $$ = function Functor(obj, method, unsealed) {
-        var retval = function() {
+        var retval = function functorCall() {
             return method.apply(obj, arguments);
         };
 
@@ -41,7 +41,7 @@ var Functor = (function() {
                 }
             },
             rescope: {
-                value: function(newObj) {
+                value: function rescope(newObj) {
                     return new Functor(newObj, method);
                 }
             }

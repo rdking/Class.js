@@ -40,6 +40,9 @@ var EventHandler = new Class("EventHandler", {
         this.addListener(evnt, fn, true);
 	}),
 	removeEventListener: Public(function removeEventListener(evnt, fn) {
+        if (this.listeners == null)
+            this.listeners = {};
+
 		if (this.listeners.hasOwnProperty(evnt)) {
             var handlers = this.listeners[evnt];
 			var index = -1;
@@ -51,6 +54,9 @@ var EventHandler = new Class("EventHandler", {
 		}
 	}),
 	fireEvent: Public(function fireEvent(evnt, params) {
+        if (this.listeners == null)
+            this.listeners = {};
+
 		if (this.listeners.hasOwnProperty(evnt)) {
 			var handlers = this.listeners[evnt];
             var keep = [];
@@ -69,6 +75,9 @@ var EventHandler = new Class("EventHandler", {
 		}
 	}),
 	fireEventSync: Public(function fireEvent(evnt, params) {
+        if (this.listeners == null)
+            this.listeners = {};
+
 		if (this.listeners.hasOwnProperty(evnt)) {
 			var handlers = this.listeners[evnt];
             var keep = [];

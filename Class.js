@@ -381,19 +381,29 @@ var Class = (function() {
         if (!(proto === Function.prototype))
             Object.setPrototypeOf(dest, null);
 
-        var makeExtendProperty = function makeExtendProperty(obj, key) {
+        var makeExtendProperty = function makeExtendProperty(obj, dict, key) {
             if (!obj.hasOwnProperty(key))
                 Object.defineProperty(obj, key, {
                     enumerable: true,
-                    get: function extendGetter() { return src[key]; },
-                    set: function extendSetter(val) { src[key] = val; }
+                    get: function extendGetter() { return dict[key]; },
+                    set: function extendSetter(val) { dict[key] = val; }
                 });
         };
 
-        for (var key in src) {
-            if (src.hasOwnProperty(key)) {
-                makeExtendProperty(dest, key);
+        var sObj = src;
+        var sObjProto = Object.getPrototypeOf(sObj);
+        while (!sObjProto || ((sObjProto !== Object) && (sObjProto !== Function))) {
+            for (var key in sObj) {
+                if (sObj.hasOwnProperty(key)) {
+                    makeExtendProperty(dest, sObj, key);
+                }
             }
+
+            if (!sObjProto)
+                break;
+
+            sObj = sObjProto;
+            sObjProto = Object.getPrototypeOf(sObj);
         }
 
         if (!(proto === Function.prototype))
@@ -463,7 +473,7 @@ var Class = (function() {
             //Attach the inheritance to our domain. Now we know everything!
             Object.setPrototypeOf(instance, inheritance);
 
-            //Now attach our inheritance to it.
+            //Now, make sure Super is a reference to the unmodified prototype
             Extend(instance.Super, inheritance);
         }
 

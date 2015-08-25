@@ -1057,7 +1057,7 @@ var Class = (function() {
                 \n\
                 var args = [].slice.call(arguments, 0, argc);\n\
                 \n\
-                if (classConstructor && !childDomain)\n\
+                if (classConstructor && (!classConstructor.length || !childDomain))\n\
                     classConstructor.value.apply(instance, args);\n\
             }\n\
             else if (classConstructor)\n\

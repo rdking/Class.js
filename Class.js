@@ -533,40 +533,45 @@ var Class = (function() {
             if (prop.isProperty) {
                 propConfig.configurable = false;
 
-                if (_this) {
-                    if ((prop.value.get instanceof Function) && prop.value.get.isFunctor)
-                        propConfig.get = prop.value.get.rescope(_this);
-                    else
-                        propConfig.get = prop.value.get;
-
-                    if (propConfig.get && prop.type)
-                        propConfig.get = validateReturnType(propConfig.get);
-
-                    if ((prop.value.set instanceof Function) && prop.value.set.isFunctor)
-                        propConfig.set = prop.value.set.rescope(_this);
-                    else
-                        propConfig.set = prop.value.set;
-
-                    if (propConfig.set && prop.type)
-                        propConfig.set = validateReturnType(propConfig.set);
+                if (prop.value.hasOwnProperty("value")) {
+                    propConfig.value = prop.value.value;
                 }
                 else {
-                    if (prop.value.get)
-                        propConfig.get = prop.value.get;
-
-                    if (prop.value.set)
-                        propConfig.set = prop.value.set;
-
-                    if (propConfig.set && prop.type)
-                        propConfig.set = validateReturnType(propConfig.set);
-
-                    if (prop.value.value) {
-                        propConfig.writable = prop.value.wrtable;
-
-                        if ((prop.value.value instanceof Function) && prop.value.value.isFunctor)
-                            propConfig.value = prop.value.value.rescope(_this);
+                    if (_this) {
+                        if ((prop.value.get instanceof Function) && prop.value.get.isFunctor)
+                            propConfig.get = prop.value.get.rescope(_this);
                         else
-                            propConfig.value = prop.value.value;
+                            propConfig.get = prop.value.get;
+
+                        if (propConfig.get && prop.type)
+                            propConfig.get = validateReturnType(propConfig.get);
+
+                        if ((prop.value.set instanceof Function) && prop.value.set.isFunctor)
+                            propConfig.set = prop.value.set.rescope(_this);
+                        else
+                            propConfig.set = prop.value.set;
+
+                        if (propConfig.set && prop.type)
+                            propConfig.set = validateReturnType(propConfig.set);
+                    }
+                    else {
+                        if (prop.value.get)
+                            propConfig.get = prop.value.get;
+
+                        if (prop.value.set)
+                            propConfig.set = prop.value.set;
+
+                        if (propConfig.set && prop.type)
+                            propConfig.set = validateReturnType(propConfig.set);
+
+                        if (prop.value.value) {
+                            propConfig.writable = prop.value.wrtable;
+
+                            if ((prop.value.value instanceof Function) && prop.value.value.isFunctor)
+                                propConfig.value = prop.value.value.rescope(_this);
+                            else
+                                propConfig.value = prop.value.value;
+                        }
                     }
                 }
             }
@@ -753,7 +758,7 @@ var Class = (function() {
                 var retval = instance[key];
 
                 //If we're returning a function, make sure it's called against the correct object!
-                if ((retval instanceof Function) && !retval.isClass && !retval.isFunctor)
+                if ((retval instanceof Function) && !retval.isClass && !retval.isFunctor && !retval.isEnumType)
                     retval = new Functor(instance, retval);
 
                 return retval;
@@ -1057,7 +1062,7 @@ var Class = (function() {
                 \n\
                 var args = [].slice.call(arguments, 0, argc);\n\
                 \n\
-                if (classConstructor && (!classConstructor.length || !childDomain))\n\
+                if (classConstructor && (!classConstructor.value.length || !childDomain))\n\
                     classConstructor.value.apply(instance, args);\n\
             }\n\
             else if (classConstructor)\n\
@@ -1072,7 +1077,15 @@ var Class = (function() {
         Object.defineProperties($$, {
             "__name": { value: name },
             "isClass": { value: true },
-            "classMode": { get: function() { return _classMode; }}
+            "classMode": { get: function() { return _classMode; }},
+            "inheritsFrom": {
+                value: function inheritsFrom(obj) {
+                    return (definition.hasOwnProperty("Extends") &&
+                            definition.Extends.isClass &&
+                            ((definition.Extends === obj) ||
+                             (definition.Extends.inheritsFrom(obj))));
+                }
+            }
         });
         Object.defineProperty($$.prototype, "isClassInstance", { value: true });
 
@@ -1241,35 +1254,39 @@ var Class = (function() {
             value: function(type, val) {
                 var retval = null;
 
-                if (type && (type.isClass || type.isInterface)) {
+                var isValid = function isValid(t, v) {
+                    return ((v === null) || (v === undefined) ||
+                            (t.isInterface && t.isImplementedBy(v)) ||
+                            (t.isClass && (v instanceof t)) ||
+                            ((t === Function) && (v instanceof Function)) ||
+                            ((t === Date) && (v instanceof Date)) ||
+                            (((t === String) || ((typeof t == "string") && (t.toLowerCase == "string"))) && (typeof v == "string")) ||
+                            (((typeof t == "string") && (t.toLowerCase == "number")) && (typeof v == "number")) ||
+                            (((typeof t == "string") && (t.toLowerCase == "boolean")) && (typeof v == "boolean")));
+                };
+
+                if (type && (type.isClass || type.isInterface || (type === Function) ||
+                             (type === String) || (type === Date) ||
+                             ((typeof t == "string") && (t.toLowerCase == "string")) ||
+                             ((typeof t == "string") && (t.toLowerCase == "number"))
+                             ((typeof t == "string") && (t.toLowerCase == "boolean")))) {
                     if (val instanceof Box) {
-                        if ((val.value === null) || (val.value === undefined) ||
-                            (type.isClass && (val.value instanceof type)) ||
-                            (type.isInterface && type.isImplementedBy(val.value)))
-                        {
+                        if (isValid(type, val.value)) {
                             retval = val;
                             retval.type = type;
                         }
-                        else {
-                            if (type.isClass)
-                                throw new TypeError("Value must be of type " + type.__name);
-                            else
-                                throw new TypeError("Value must implement the " + type.__name + " interface");
-                        }
+                        else if (type.isClass)
+                            throw new TypeError("Value must be of type " + type.__name);
+                        else
+                            throw new TypeError("Value must implement the " + type.__name + " interface");
                     }
-                    else {
-                        if ((type.isClass && (val instanceof type)) ||
-                            (type.isImplementedBy(val)))
-                        {
-                            retval = new Box(null, false, false, false, false, val, type)
-                        }
-                        else {
-                            if (type.isClass)
-                                throw new TypeError("Value must be of type " + type.__name);
-                            else
-                                throw new TypeError("Value must implement the " + type.__name + " interface");
-                        }
+                    else if (isValid(type, val)) {
+                        retval = new Box(null, false, false, false, false, val, type)
                     }
+                    else if (type.isClass)
+                        throw new TypeError("Value must be of type " + type.__name);
+                    else
+                        throw new TypeError("Value must implement the " + type.__name + " interface");
                 }
                 else
                     throw new TypeError("Type must reference either a Class or an Interface!");

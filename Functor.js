@@ -19,14 +19,19 @@
  */
 var Functor = (function() {
     var $$ = function Functor(obj, method, unsealed) {
+        var isFixed = false;
         var retval = function functorCall() {
             return method.apply(obj, arguments);
         };
 
         Object.defineProperties(retval, {
             "_this": {
-                get: function() { return obj; },
-                set: function(val) { obj = val; }
+                get: function getThis() { return obj; },
+                set: function setThis(val) { !isFixed && (obj = val); }
+            },
+            "_method": {
+                get: function getMethod() { return method; },
+                set: function setMethod(val) { !isFixed && (method = val); }
             },
             isFunctor: {
                 value: true
@@ -43,6 +48,12 @@ var Functor = (function() {
             rescope: {
                 value: function rescope(newObj) {
                     return new Functor(newObj, method);
+                }
+            },
+            fix: {
+                value: function fix() {
+                    isFixed = true;
+                    Object.freeze(this);
                 }
             }
         });

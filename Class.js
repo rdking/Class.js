@@ -20,6 +20,7 @@
 var Enum = Enum || null;
 var Functor = Functor || null;
 var WeakMap = WeakMap || null;
+var Interface = Interface || null;
 
 if (module && exports && module.exports === exports) {
     if (!Enum)
@@ -30,12 +31,15 @@ if (module && exports && module.exports === exports) {
 
     if (!WeakMap)
         WeakMap = require('./WeakMap');
+
+    if (!Interface)
+        Interface = require('./Interface');
 }
 
 //Another polyfill....
 if (!(Object.setPrototypeOf instanceof Function)) {
     Object.defineProperty(Object, "setPrototypeOf", {
-        value: function(obj, proto) {
+        value: function setPrototypeOf(obj, proto) {
             if (!(typeof proto == "object") || Array.isArray(proto))
                 throw new Error("Object.setPrototypeOf: Prototype parameter is not an object!");
 
@@ -49,7 +53,7 @@ if (!(Object.setPrototypeOf instanceof Function)) {
 
 if (!(Object.getPrototypeOf instanceof Function)) {
     Object.defineProperty(Object, "getPrototypeOf", {
-        value: function(obj) {
+        value: function getPrototypeOf(obj) {
             if (!(typeof obj == "object") || Array.isArray(obj))
                 throw new Error("Object.getPrototypeOf: Parameter is not an object!");
 
@@ -58,9 +62,9 @@ if (!(Object.getPrototypeOf instanceof Function)) {
     });
 }
 
-var Class = (function() {
+var Class = (function Class() {
     var Privilege = new Enum("Public", [ "Public", "Protected", "Private" ]);
-    var Box = (function() {
+    var Box = (function Box() {
         var internal = new WeakMap();
         var $$$ = function Box(priv, _static, final, property, delegate, value, type) {
             internal.set(this, {
@@ -91,8 +95,8 @@ var Class = (function() {
             },
             isPrivate: {
                 enumerable: true,
-                get: function() { return internal.get(this).isPrivate; },
-                set: function(val) {
+                get: function getIsPrivate() { return internal.get(this).isPrivate; },
+                set: function setIsPrivate(val) {
                     internal.get(this).isPrivate = val;
                     internal.get(this).isProtected &= !val;
                     internal.get(this).isPublic &= !val;
@@ -100,8 +104,8 @@ var Class = (function() {
             },
             isProtected: {
                 enumerable: true,
-                get: function() { return internal.get(this).isProtected; },
-                set: function(val) {
+                get: function getIsProtected() { return internal.get(this).isProtected; },
+                set: function setIsProtected(val) {
                     internal.get(this).isProtected = val;
                     internal.get(this).isPrivate &= !val;
                     internal.get(this).isPublic &= !val;
@@ -109,8 +113,8 @@ var Class = (function() {
             },
             isPublic: {
                 enumerable: true,
-                get: function() { return internal.get(this).isPublic; },
-                set: function(val) {
+                get: function getIsPublic() { return internal.get(this).isPublic; },
+                set: function setIsPublic(val) {
                     internal.get(this).isPrivate &= !val;
                     internal.get(this).isProtected &= !val;
                     internal.get(this).isPublic = val;
@@ -118,36 +122,36 @@ var Class = (function() {
             },
             isStatic: {
                 enumerable: true,
-                get: function() { return internal.get(this).isStatic; },
-                set: function(val) { internal.get(this).isStatic = val; }
+                get: function getIsStatic() { return internal.get(this).isStatic; },
+                set: function setIsStatic(val) { internal.get(this).isStatic = val; }
             },
             isFinal: {
                 enumerable: true,
-                get: function() { return internal.get(this).isFinal; },
-                set: function(val) { internal.get(this).isFinal = val; }
+                get: function getIsFinal() { return internal.get(this).isFinal; },
+                set: function setIsFinal(val) { internal.get(this).isFinal = val; }
             },
             isProperty: {
                 enumerable: true,
-                get: function() { return internal.get(this).isProperty; },
-                set: function(val) { internal.get(this).isProperty = val; }
+                get: function getIsProperty() { return internal.get(this).isProperty; },
+                set: function setIsProperty(val) { internal.get(this).isProperty = val; }
             },
             isDelegate: {
                 enumerable: true,
-                get: function() { return internal.get(this).isDelegate; },
-                set: function(val) { internal.get(this).isDelegate = val; }
+                get: function getIsDelegate() { return internal.get(this).isDelegate; },
+                set: function setIsDelegate(val) { internal.get(this).isDelegate = val; }
             },
             type: {
                 enumerable: true,
-                get: function() { return internal.get(this).type; },
-                set: function(val) { internal.get(this).type = val; }
+                get: function getType() { return internal.get(this).type; },
+                set: function setType(val) { internal.get(this).type = val; }
             },
             value: {
                 enumerable: true,
-                get: function() { return internal.get(this).value; }
+                get: function getValue() { return internal.get(this).value; }
             },
             toString: {
                 enumerable: true,
-                value: function() {
+                value: function toString() {
                     var retval = "{";
 
                     var typeName = "<unknown>";
@@ -182,7 +186,12 @@ var Class = (function() {
         return $$$;
     })();
 
-    var Unbox = function(dest, source, _this, shallow, ignore) {
+    var isSimpleFunction = function isValidFunction(obj) {
+        return ((obj instanceof Function) &&
+                !obj.isClass && !obj.isEnum && !obj.isInterface && !obj.isAttribute);
+    };
+
+    var Unbox = function Unbox(dest, source, _this, shallow, ignore) {
         var currentScope = source;
         var pType = [];
 
@@ -202,9 +211,29 @@ var Class = (function() {
             for (var key in currentScope) {
                 if ((ignore.indexOf(key) < 0) && currentScope.hasOwnProperty(key)) {
             		for (var i=0; i<dest.length; ++i) {
-                        if (!dest[i].hasOwnProperty[key]) {
+                        if (!(key in pType[i]) || dest[i].__isInheritedDomain) {
                             dest[i][key] = true;
                             ExpandScopeElement(dest[i], currentScope, key, _this);
+                        }
+                        else if (isSimpleFunction(currentScope[key].value)) {
+                            var prev = pType[i][key];
+
+                            if ((typeof(prev) == "object") && prev.hasOwnProperty("get")) {
+                                prev = prev.get();
+                            }
+
+                            //Since the key already exists in the base, preserve the original value on this.Super
+                            if (pType[i].hasOwnProperty("Super")) {
+                                Object.defineProperty(pType[i].Super, key, {
+                                    enumerable: true,
+                                    value: prev
+                                });
+                            }
+                            pType[i][key] = new Functor(dest[i], currentScope[key].value);
+                        }
+                        else {
+                            //It's just a new default property value....
+                            pType[i][key] = currentScope[key].value;
                         }
                     }
                 }
@@ -221,7 +250,7 @@ var Class = (function() {
         	Object.setPrototypeOf(dest[i], pType[i]);
     };
 
-    var BlendMixins = function(list, instance) {
+    var BlendMixins = function BlendMixins(list, instance) {
         if (Array.isArray(list)) {
             var i = 0;
             try {
@@ -234,13 +263,13 @@ var Class = (function() {
         }
     };
 
-    var InheritFrom = function(_class, def, protScope, statScope) {
+    var InheritFrom = function InheritFrom(_class, def, protScope, statScope) {
         _class.prototype = _class.prototype || {};
 
         if (def && def.Extends) {
             //If it's a non-final Class.js class.
             if (def.Extends.isClass) {
-                if (def.Extends.classMode === Class.ClassModes.Final)
+                if (def.Extends.classMode === _$.ClassModes.Final)
                     throw new SyntaxError("Cannot extend a Final Class!");
                 
                 var inherited = {};
@@ -336,7 +365,7 @@ var Class = (function() {
         }
     };
 
-    var CollectEvents = function(_class) {
+    var CollectEvents = function CollectEvents(_class) {
         var retval = [];
 
         var obj = _class;
@@ -351,7 +380,7 @@ var Class = (function() {
         return retval;
     };
 
-    var RegisterEvents = function(_class, def, priv) {
+    var RegisterEvents = function RegisterEvents(_class, def, priv) {
         var eventArray = def.Events;
 
         if (eventArray && !Array.isArray(eventArray))
@@ -365,7 +394,7 @@ var Class = (function() {
 
         //We do it this way to prevent the base scope's events from binding to all
         //child scopes!
-        var getEvents = function() {
+        var getEvents = function getEvents() {
             return EventEnum;
         };
 
@@ -376,7 +405,7 @@ var Class = (function() {
         Object.defineProperty(def, "Events", { get: getEvents });
     };
 
-    var Extend = function(dest, src) {
+    var Extend = function Extend(dest, src) {
         var proto = Object.getPrototypeOf(dest);
         if (!(proto === Function.prototype))
             Object.setPrototypeOf(dest, null);
@@ -410,7 +439,7 @@ var Class = (function() {
             Object.setPrototypeOf(dest, proto);
     };
 
-    var Super = function(_this, instance, self) {
+    var Super = function Super(_this, instance, self) {
         if (_this._superClass) {
             _this._superClass = _this._superClass.InheritsFrom;
         }
@@ -474,13 +503,13 @@ var Class = (function() {
             Object.setPrototypeOf(instance, inheritance);
 
             //Now, make sure Super is a reference to the unmodified prototype
-            Extend(instance.Super, inheritance);
+            //Extend(instance.Super, inheritance);
         }
 
         delete _this._superClass;
     };
 
-    var ExpandScopeElement = function(dest, scope, key, _this) {
+    var ExpandScopeElement = function ExpandScopeElement(dest, scope, key, _this) {
         if (dest.hasOwnProperty(key) && (scope[key] instanceof Box)) {
             var prop = scope[key];
             var isFn = (prop.value instanceof Function && !prop.value.isClass);
@@ -509,7 +538,7 @@ var Class = (function() {
                     retval = obj;
 
                 return retval;
-            }
+            };
 
             var validateAssignType = function validateAssignType(obj) {
                 var retval = function validate_value(val) {
@@ -528,13 +557,16 @@ var Class = (function() {
                 }
 
                 return retval;
-            }
+            };
 
             if (prop.isProperty) {
                 propConfig.configurable = false;
 
                 if (prop.value.hasOwnProperty("value")) {
                     propConfig.value = prop.value.value;
+
+                    if (isSimpleFunction(propConfig.value))
+                        propConfig.writable = true;
                 }
                 else {
                     if (_this) {
@@ -576,17 +608,18 @@ var Class = (function() {
                 }
             }
             else {
-                if (!prop.type)
-                    propConfig.writable = !isFinal;
+                propConfig.writable = !isFinal;
+                propConfig.value = prop.value;
 
-                if ((prop.value instanceof Function) && prop.value.isFunctor)
-                    propConfig.value = prop.value.rescope(_this);
-                else
-                    propConfig.value = prop.value;
-                
-                if (prop.type && (propConfig.value instanceof Function)) {
-                    propConfig.writable = !isFinal;
-                    propConfig.value = validateReturnType(propConfig.value);
+                //Special care needs to be used for functions...
+                if (isSimpleFunction(prop.value)) {
+                    propConfig.writable = !prop.isPrivate && !prop.isStatic && !prop.isFinal;
+
+                    if (prop.value.isFunctor)
+                        propConfig.value = prop.value.rescope(_this);
+
+                    if (prop.type)
+                        propConfig.value = validateReturnType(propConfig.value);
                 }
 
                 if (prop.isDelegate) {
@@ -625,9 +658,14 @@ var Class = (function() {
         var classConstructor;
         var _classMode = Class.ClassModes.Default;
 
-        var initialize = function(_this, childDomain, self) {
-        	//Build the class instance container for this instance.
-            var domain = createScope(_this);
+        var initialize = function initialize(_this, childDomain, self) {
+            var domain = {};
+
+            //Construct the base class first, if there is one.
+            if (_this.InheritsFrom) {
+                Super(_this, domain, self);
+            }
+
             //We need to manually attach the Event enum.
             Object.defineProperties(domain, {
                 "Self": { enumerable: true, value: self || _this },
@@ -659,7 +697,7 @@ var Class = (function() {
                 "Events": { enumerable: true, value: definition.Events },
              	"Delegate": {
                     enumerable: true,
-                    value: function(name, unsealed) {
+                    value: function Delegate(name, unsealed) {
                         var retval = null;
                         if (name instanceof Function)
                             retval = new Functor(this, name, unsealed);
@@ -673,9 +711,6 @@ var Class = (function() {
                     }
                 }
             });
-
-            //Create a copy of the class scope for the current instance.
-            instances.set(_this, domain);
 
             if (childDomain) {
                 //If we have a child domain due to a Super() call, then
@@ -718,7 +753,12 @@ var Class = (function() {
                     }
                 }
             }
-            
+
+            //Build the class instance container for this instance.
+            createScope(domain);
+            //Create a copy of the class scope for the current instance.
+            instances.set(_this, domain);
+
             //As long as we're not dealing with a call from InheritFrom()
             if (!childDomain || childDomain.__isInheritedDomain) {
                 /* Remove the prototype of the current object so we don't get
@@ -734,25 +774,20 @@ var Class = (function() {
             }
         };
 
-        var createScope = function(_this) {
-            var retval = {};
-
-            Object.defineProperty(retval, "__isClassDomain", { enumerable: true, value: true });
-            Object.defineProperty(retval, "__name", { enumerable: true, value: name || "<anonymous>" });
+        var createScope = function createScope(scope) {
+            Object.defineProperty(scope, "__isClassDomain", { enumerable: true, value: true });
+            Object.defineProperty(scope, "__name", { enumerable: true, value: name || "<anonymous>" });
             
-            Unbox(retval, definition, retval, false, ["Extends", "Events"]);
-            //Unbox(_this, publicScope, _this, false, ["Extends", "Events"]);
-
-            return retval;
+            Unbox(scope, definition, scope, false, ["Extends", "Events"]);
         };
 
-        var makeRedirect = function(prop, dest, key) {
+        var makeRedirect = function makeRedirect(prop, dest, key) {
             var isProtected = (dest === protectedScope);
         	var propConfig = {
         		enumerable: true
         	};
 
-            var getRedirect = function() {
+            var getRedirect = function getRedirect() {
                 var instance = ((prop.isStatic && this.__isClassDomain)?staticScope:
                                 ((this.__isClassDomain)?this:instances.get(this))) || staticScope;
                 var retval = instance[key];
@@ -764,7 +799,7 @@ var Class = (function() {
                 return retval;
             };
 
-            var setRedirect = function(val) {
+            var setRedirect = function setRedirect(val) {
                 var instance = ((prop.isStatic && this.__isClassDomain)?staticScope :
                                 ((this.__isClassDomain)?this:instances.get(this))) || staticScope;
                 instance[key] = val;
@@ -790,7 +825,7 @@ var Class = (function() {
         };
 
         //Allows construction from private static scope
-        var createInstance = function() {
+        var createInstance = function createInstance() {
             var instance = Object.create($$.prototype);
             var priv = classConstructor.isPrivate << 2 + classConstructor.isProtected << 1 + classConstructor.isPublic;
             classConstructor.isPublic = true;
@@ -802,7 +837,7 @@ var Class = (function() {
         };
 
         //Test to see if definition matches the given interface.
-        var hasInterface = function(iface) {
+        var hasInterface = function hasInterface(iface) {
             if (!iface.isInterface)
                 throw new TypeError("Classes only implement Interface objects!");
 
@@ -813,7 +848,7 @@ var Class = (function() {
         var unpackTypedMembers = function unpackTypedMembers() {
             var types = {};
 
-            var typedProperty = function(type, skey) {
+            var typedProperty = function typedProperty(type, skey) {
                 return {
                     get: function getTypedProperty() { return this[skey]; },
                     set: function setTypedProperty(val) {
@@ -869,7 +904,7 @@ var Class = (function() {
         };
 
         //Parses the definition parameter.
-        var generateScopes = function(_class) {
+        var generateScopes = function generateScopes(_class) {
             var hasInterfaces = false;
 
             //There's some extra work to be done to support type restrictions
@@ -990,6 +1025,25 @@ var Class = (function() {
                 }
             }
 
+            //Time to inject a Self object onto the staticScope object
+            staticScope["Self"] = new Box(Privilege.Private, true, true, false, false, _class);
+            ExpandScopeElement(staticScope, staticScope, "Self");
+
+            //Static scope also needs a Delegate helper
+            staticScope["Delegate"] = new Box(Privilege.Private, true, true, false, false, function Delegate(name, unsealed) {
+                var retval = null;
+                if (name instanceof Function)
+                    retval = new Functor(this, name, unsealed);
+                else if ((typeof name === "string") && (this[name] instanceof Function))
+                    retval = new Functor(this, this[name], unsealed);
+                else
+                    throw new Error("The Delegate parameter must be either the string name of " +
+                                    "a function in the current object or a function definition!");
+
+                return retval;
+            });
+            ExpandScopeElement(staticScope, staticScope, "Delegate");
+
             if (hasInterfaces) {
                 var matches = true;
                 var lastIndex = -1;
@@ -1051,10 +1105,6 @@ var Class = (function() {
                 initialize(this, childDomain, self);\n\
                 var instance = instances.get(this);\n\
                 \n\
-                if (this.InheritsFrom) {\n\
-                    Super(this, instance, self);\n\
-                }\n\
-                \n\
                 if (definition.Mixins)\n\
                     BlendMixins(definition.Mixins, instance);\n\
                 \n\
@@ -1077,13 +1127,49 @@ var Class = (function() {
         Object.defineProperties($$, {
             "__name": { value: name },
             "isClass": { value: true },
-            "classMode": { get: function() { return _classMode; }},
+            "classMode": { get: function getClassMode() { return _classMode; }},
             "inheritsFrom": {
                 value: function inheritsFrom(obj) {
                     return (definition.hasOwnProperty("Extends") &&
                             definition.Extends.isClass &&
                             ((definition.Extends === obj) ||
                              (definition.Extends.inheritsFrom(obj))));
+                }
+            },
+            "getInterface": {
+                value: function getInterface() {
+                    var intDef = {};
+
+                    if ($$.InheritsFrom)
+                        intDef.Extends = [ $$.InheritsFrom.getInterface() ];
+
+                    if (definition.Implements && Array.isArray(definition.Implements)) {
+                        if (!Array.isArray(intDef.Extends))
+                            intDef.Extends = [];
+
+                        for (var i=0; i< definition.Implements.length; ++i)
+                            intDef.Extends.push(definition.Implements[i]);
+                    }
+
+                    intDef.Properties = {};
+                    intDef.Methods = {};
+
+                    for(var elementKey in definition) {
+                        if (definition.hasOwnProperty(elementKey)) {
+                            var element = definition[elementKey];
+
+                            if ((elementKey != "Constructor") && (elementKey != "StaticConstructor") &&
+                                (element.isBox && element.isPublic)) {
+
+                                if (element.isProperty)
+                                    intDef.Properties[elementKey] = element.value.hasOwnProperty("set");
+                                else
+                                    intDef.Methods[elementKey] = element.value.length;
+                            }
+                        }
+                    }
+
+                    return new Interface(name + "_Interface", intDef);
                 }
             }
         });
@@ -1114,7 +1200,7 @@ var Class = (function() {
             enumerable: false,
             configurable: false,
             writable: false,
-            value: function(val) {
+            value: function Private(val) {
                 var retval = null;
 
                 if (val instanceof Box) {
@@ -1135,7 +1221,7 @@ var Class = (function() {
             enumerable: false,
             configurable: false,
             writable: false,
-            value: function(val) {
+            value: function Protected(val) {
                 var retval = null;
 
                 if (val instanceof Box) {
@@ -1156,7 +1242,7 @@ var Class = (function() {
             enumerable: false,
             configurable: false,
             writable: false,
-            value: function(val) {
+            value: function Public(val) {
                 var retval = null;
 
                 if (val instanceof Box) {
@@ -1177,7 +1263,7 @@ var Class = (function() {
             enumerable: false,
             configurable: false,
             writable: false,
-            value: function(val) {
+            value: function Static(val) {
                 var retval = null;
 
                 if (val instanceof Box) {
@@ -1194,7 +1280,7 @@ var Class = (function() {
             enumerable: false,
             configurable: false,
             writable: false,
-            value: function(val) {
+            value: function Final(val) {
                 var retval = null;
 
                 if (val instanceof Box) {
@@ -1211,7 +1297,7 @@ var Class = (function() {
             enumerable: false,
             configurable: false,
             writable: false,
-            value: function(val) {
+            value: function Property(val) {
                 var retval = null;
 
                 if (val instanceof Box) {
@@ -1228,7 +1314,7 @@ var Class = (function() {
             enumerable: false,
             configurable: false,
             writable: false,
-            value: function(val) {
+            value: function Delegate(val) {
                 var retval = null;
                 
                 if (val instanceof Box) {
@@ -1251,7 +1337,7 @@ var Class = (function() {
             enumerable: false,
             configurable: false,
             writable: false,
-            value: function(type, val) {
+            value: function Type(type, val) {
                 var retval = null;
 
                 var isValid = function isValid(t, v) {

@@ -97,7 +97,24 @@ var Interface = (function() {
             Extend(def, obj);
         }
         else
-            throw new TypeError("Interfaces can only inherit from other Interfaces!");
+            throw new TypeError("Interfaces can only inherit from   Interfaces!");
+    };
+
+    var Flatten = function Flatten(def) {
+        var retval = {};
+
+        Extend(retval, def);
+
+        if (Array.isArray(def.Extends)) {
+            var count = def.Extends.length;
+            for (var i=0; i<count; ++i)
+                Inherit(retval, def.Extends[i]);
+        }
+        else if (def.Extends)
+            throw new SyntaxError("Extends must be an array of Interface objects if defined!");
+
+        Object.freeze(retval);
+        return retval;
     };
 
     var $$ = function Interface(name, definition) {
@@ -112,36 +129,29 @@ var Interface = (function() {
         //Yes. Anonymous classes are also valid!
         name = name || "";
 
-        var def = {};
-        Extend(def, definition);
-
-        if (Array.isArray(definition.Extends)) {
-            var count = definition.Extends.length;
-            for (var i=0; i<count; ++i)
-                Inherit(def, definition.Extends[i]);
-        }
-        else if (definition.Extends)
-            throw new SyntaxError("Extends must be an array of Interface objects if defined!");
-
-        Object.freeze(def);
-        scope.set(this, def);
-
-        Object.defineProperties(this, {
-            Properties: {
-                enumerable: true,
-                get: function getProperties() { return scope.get(this).Properties; }
-            },
-            Methods: {
-                enumerable: true,
-                get: function getMethods() { return scope.get(this).Methods; }
-            }
-        });
+        Object.freeze(definition);
+        scope.set(this, { raw: definition, flattened: Flatten(definition)});
 
         Object.freeze(this);
         return this;
     };
 
     Object.defineProperties($$.prototype, {
+        valueOf: {
+            get: function getValueOf() { return JSON.stringify(scope.get(this).raw); }
+        },
+        Properties: {
+            enumerable: true,
+            get: function getProperties() { return scope.get(this).raw.Properties; }
+        },
+        Methods: {
+            enumerable: true,
+            get: function getMethods() { return scope.get(this).raw.Methods; }
+        },
+        Extends: {
+            enumerable: true,
+            get: function getExtends() { return scope.get(this).raw.Extends; }
+        },
         isInterface: {
             enumerable: true,
             value: true
@@ -215,11 +225,12 @@ var Interface = (function() {
                 if (obj.isClass || obj.isClassInstance)
                     retval = obj.Implements(this);
                 else {
+                    var container = scope.get(this).flattened;
                     if (this.hasOwnProperty("Properties"))
-                        retval &= test(obj, this.Properties, true);
+                        retval &= test(obj, container.Properties, true);
 
                     if (this.hasOwnProperty("Methods"))
-                        retval &= test(obj, this.Methods, false);
+                        retval &= test(obj, container.Methods, false);
                 }
 
                 return retval;
@@ -231,7 +242,7 @@ var Interface = (function() {
                 if (!obj)
                     throw new SyntaxError("The object being tested as an ancestor cannot be null!");
 
-                var definition = scope.get(this);
+                var definition = scope.get(this).raw;
                 var retval = !definition.Extends || (definition.Extends.indexOf(obj) == -1);
                 return retval;
             }

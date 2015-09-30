@@ -66,17 +66,18 @@ var Class = (function Class() {
     var Privilege = new Enum("Public", [ "Public", "Protected", "Private" ]);
     var Box = (function Box() {
         var internal = new WeakMap();
-        var $$$ = function Box(priv, _static, final, property, delegate, value, type) {
+        var $$$ = function Box(params) {
             internal.set(this, {
-                isPrivate: (priv == Privilege.Private),
-                isProtected: (priv == Privilege.Protected),
-                isPublic: (priv == Privilege.Public),
-                isFinal: final,
-                isStatic: _static,
-                isProperty: property,
-                isDelegate: delegate,
-                type: type,
-                value: value
+                isPrivate: (params.privilege == Privilege.Private),
+                isProtected: (params.privilege == Privilege.Protected),
+                isPublic: (params.privilege == Privilege.Public),
+                isFinal: !!params.isFinal,
+                isAbstract: !!params.isAbstract,
+                isStatic: !!params.isStatic,
+                isProperty: !!params.isProperty,
+                isDelegate: !!params.isDelegate,
+                type: params.type,
+                value: params.value
             });
 
             if (this.isProperty && this.isFinal)
@@ -84,6 +85,15 @@ var Class = (function Class() {
 
             if (this.isPrivate && this.isStatic && this.Property)
             	throw new Error("What exactly is the use-case for a Private Static Property? Doesn't make sense, so NO!");
+
+            if (this.isProperty && this.isAbstract)
+                throw new Error("Have ye gone daft? What good is a property that the owning class doesn't even define?");
+
+            if (this.isAbstract && this.isFinal)
+                throw new Error("Please make up your mind! Do you want to define it now(\"Final\") or later(\"Abstract\")?");
+
+            if (this.isAbstract && this .isStatic)
+                throw new Error("Just exactly how do you expect a descendant to redefine something not presented to descendants?");
 
             return this;
         };
@@ -129,6 +139,11 @@ var Class = (function Class() {
                 enumerable: true,
                 get: function getIsFinal() { return internal.get(this).isFinal; },
                 set: function setIsFinal(val) { internal.get(this).isFinal = val; }
+            },
+            isAbstract: {
+                enumerable: true,
+                get: function getIsAbstract() { return internal.get(this).isAbstract; },
+                set: function setIsAbstract(val) { internal.get(this).isAbstract = val; }
             },
             isProperty: {
                 enumerable: true,
@@ -820,8 +835,12 @@ var Class = (function Class() {
 
         	//Put a new property on the destination that references the
         	//redirected object.
-        	dest[key] = new Box(prop.isPublic?Privilege.Public: (prop.isProtected?Privilege.Protected:Privilege.Private),
-        						prop.isStatic, false, true, false, propConfig);
+        	dest[key] = new Box({
+                privilege: prop.isPublic?Privilege.Public: (prop.isProtected?Privilege.Protected:Privilege.Private),
+                isStatic: prop.isStatic,
+                isProperty: true,
+                value: propConfig
+            });
         };
 
         //Allows construction from private static scope
@@ -886,11 +905,20 @@ var Class = (function Class() {
                                 to the storage variable
                         */
                         //Create a new box for the storage variable
-                        types[skey] = new Box(Privilege.Private, prop.isStatic, prop.isFinal,
-                                              false, false, prop.value);
+                        types[skey] = new Box({
+                            privilege: Privilege.Private,
+                            isStatic: prop.isStatic,
+                            isFinal: prop.isFinal,
+                            value: prop.value
+                        });
                         //Now replace definition[key] with a property definition that accesses the storage variable
-                        definition[key] = new Box(Privilege.Private, prop.isStatic, prop.isFinal,
-                                                  true, false, typedProperty(prop.type, skey));
+                        definition[key] = new Box({
+                            privilege: Privilege.Private,
+                            isStatic: prop.isStatic,
+                            isFinal: prop.isFinal,
+                            isProperty: true,
+                            value: typedProperty(prop.type, skey)
+                        });
                     }
                 }
             }
@@ -919,7 +947,10 @@ var Class = (function Class() {
 
                     // If the prop isn't boxed, then Box it as public.
                     if (!(prop instanceof Box)) {
-                        prop = new Box(Privilege.Public, false, false, false, false, prop);
+                        prop = new Box({
+                            privilege: Privilege.Public,
+                            value: prop
+                        });
                         definition[key] = prop;
                     }
 
@@ -1026,21 +1057,31 @@ var Class = (function Class() {
             }
 
             //Time to inject a Self object onto the staticScope object
-            staticScope["Self"] = new Box(Privilege.Private, true, true, false, false, _class);
+            staticScope["Self"] = new Box({
+                privilege: Privilege.Private,
+                isStatic: true,
+                isFinal: true,
+                value: _class
+            });
             ExpandScopeElement(staticScope, staticScope, "Self");
 
             //Static scope also needs a Delegate helper
-            staticScope["Delegate"] = new Box(Privilege.Private, true, true, false, false, function Delegate(name, unsealed) {
-                var retval = null;
-                if (name instanceof Function)
-                    retval = new Functor(this, name, unsealed);
-                else if ((typeof name === "string") && (this[name] instanceof Function))
-                    retval = new Functor(this, this[name], unsealed);
-                else
-                    throw new Error("The Delegate parameter must be either the string name of " +
-                                    "a function in the current object or a function definition!");
+            staticScope["Delegate"] = new Box({
+                privilege: Privilege.Private,
+                isStatic: true,
+                isFinal: true,
+                value: function Delegate(name, unsealed) {
+                    var retval = null;
+                    if (name instanceof Function)
+                        retval = new Functor(this, name, unsealed);
+                    else if ((typeof name === "string") && (this[name] instanceof Function))
+                        retval = new Functor(this, this[name], unsealed);
+                    else
+                        throw new Error("The Delegate parameter must be either the string name of " +
+                                        "a function in the current object or a function definition!");
 
-                return retval;
+                    return retval;
+                }
             });
             ExpandScopeElement(staticScope, staticScope, "Delegate");
 
@@ -1058,7 +1099,11 @@ var Class = (function Class() {
                     throw new TypeError("Class does not implement interface at index " + lastindex + "!");
 
                 //Make a Static function for hasInterface as "Implements"
-                var prop = new Box(Privilege.Public, true, false, false, false, hasInterface);
+                var prop = new Box({
+                    privilege: Privilege.Public,
+                    isStatic: true,
+                    value: hasInterface
+                });
                 var key = "Implements";
                 staticScope[key] = prop;
                 makeRedirect(prop, definition, key);
@@ -1211,8 +1256,12 @@ var Class = (function Class() {
                     else
                         throw new Error("\"Public\", \"Protected\", and \"Private\" are mutually exclusive!");
                 }
-                else
-                    retval = new Box(Privilege.Private, false, false, false, false, val);
+                else {
+                    retval = new Box({
+                        privilege: Privilege.Private,
+                        value: val
+                    });
+                }
 
                 return retval;
             }
@@ -1232,8 +1281,12 @@ var Class = (function Class() {
                     else
                         throw new Error("\"Public\", \"Protected\", and \"Private\" are mutually exclusive!");
                 }
-                else
-                    retval = new Box(Privilege.Protected, false, false, false, false, val);
+                else {
+                    retval = new Box({
+                        privilege: Privilege.Protected,
+                        value: val
+                    });
+                }
 
                 return retval;
             }
@@ -1253,8 +1306,12 @@ var Class = (function Class() {
                     else
                         throw new Error("\"Public\", \"Protected\", and \"Private\" are mutually exclusive!");
                 }
-                else
-                    retval = new Box(Privilege.Public, false, false, false, false, val);
+                else {
+                    retval = new Box({
+                        privilege: Privilege.Public,
+                        value: val
+                    });
+                }
 
                 return retval;
             }
@@ -1270,8 +1327,12 @@ var Class = (function Class() {
                     retval = val;
                     retval.isStatic = true;
                 }
-                else
-                    retval = new Box(null, true, false, false, false, val);
+                else {
+                    retval = new Box({
+                        isStatic: true,
+                        value: val
+                    });
+                }
 
                 return retval;
             }
@@ -1287,8 +1348,36 @@ var Class = (function Class() {
                     retval = val;
                     retval.isFinal = true;
                 }
-                else
-                    retval = new Box(null, false, true, false, false, val);
+                else {
+                    retval = new Box({
+                        isFinal: true,
+                        value: val
+                    });
+                }
+
+                return retval;
+            }
+        },
+        "Abstract": {
+            enumerable: false,
+            configurable: false,
+            writable: false,
+            value: function abstract(val) {
+                var retval = null;
+                var nullFunction = new Functor(null, null);
+
+                if (val instanceof Box) {
+                    retval = val;
+                    val.isAbstract = true;
+                    val.value = nullFunction;
+                    val.value.fix();
+                }
+                else {
+                    retval = new Box({
+                        isAbstract: true,
+                        value: nullFunction
+                    });
+                }
 
                 return retval;
             }
@@ -1304,8 +1393,12 @@ var Class = (function Class() {
                     retval = val;
                     retval.isProperty = true;
                 }
-                else
-                    retval = new Box(null, false, false, true, false, val);
+                else {
+                    retval = new Box({
+                        isProperty: true,
+                        value: val
+                    });
+                }
 
                 return retval;
             }
@@ -1325,8 +1418,12 @@ var Class = (function Class() {
                     else
                         throw new SyntaxError("Only member functions can be Delegates!");
                 }
-                else if ((val instanceof Function) && !val.isClass)
-                    retval = new Box(null, false, false, false, true, val);
+                else if ((val instanceof Function) && !val.isClass) {
+                    retval = new Box({
+                        isDelegate: true,
+                        value: val
+                    });
+                }
                 else
                     throw new SyntaxError("Only member functions can be Delegates!");
 
@@ -1367,7 +1464,10 @@ var Class = (function Class() {
                             throw new TypeError("Value must implement the " + type.__name + " interface");
                     }
                     else if (isValid(type, val)) {
-                        retval = new Box(null, false, false, false, false, val, type)
+                        retval = new Box({
+                            type: type,
+                            value: val
+                        });
                     }
                     else if (type.isClass)
                         throw new TypeError("Value must be of type " + type.__name);

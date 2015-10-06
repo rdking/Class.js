@@ -278,12 +278,13 @@ var Class = (function Class() {
         }
     };
 
-    var InheritFrom = function InheritFrom(_class, def, protScope, statScope) {
+    var InheritFrom = function InheritFrom(_class, def, protScope, statScope, protStatScope) {
         _class.prototype = _class.prototype || {};
 
         if (def && def.Extends) {
             //If it's a non-final Class.js class.
             if (def.Extends.isClass) {
+                console.log("Inheriting from " + def.Extends.__name + " into " + _class.__name);
                 if (def.Extends.classMode === _$.ClassModes.Final)
                     throw new SyntaxError("Cannot extend a Final Class!");
                 
@@ -301,11 +302,22 @@ var Class = (function Class() {
                 for (var key in inherited) {
                     if (inherited.hasOwnProperty(key)) {
                         var value = inherited[key];
+                        console.log("Found member: " + key);
 
-                        if (value.isBox && value.isStatic && !statScope.hasOwnProperty(key)) {
-                            statScope[key] = true;
-                            ExpandScopeElement(statScope, inherited, key, statScope);
+                        if (value.isBox) {
+                            console.log("-> Member is a box");
+                            if (value.isStatic && !statScope.hasOwnProperty(key)) {
+                                statScope[key] = true;
+                                ExpandScopeElement(statScope, inherited, key, statScope);
+                            }
                         }
+                        else if (key == "__static") {
+                            console.log("-> Member is an object: " + JSON.stringify(value));
+                            Object.setPrototypeOf(statScope, value);
+                            Object.setPrototypeOf(protStatScope, value);
+                            console.log("ProtectedStaticScope during inheritance: " + JSON.stringify(protStatScope));
+                        }
+
                     }
                 }
 
@@ -668,6 +680,7 @@ var Class = (function Class() {
 
         var instances = new WeakMap();
         var staticScope = {};
+        var protectedStaticScope = {};
         var protectedScope = {};
         var publicScope = {};
         var classConstructor;
@@ -705,7 +718,9 @@ var Class = (function Class() {
                             }
                         }
                         else
-                            throw new ReferenceError("The class of the parameter does not have the class of the current instance as an Ancestor!\nCannot retrieve private scope!");
+                            throw new ReferenceError("The class of the parameter does not have the class " +
+                                                     "of the current instance as an Ancestor!\nCannot retrieve " +
+                                                     "private scope!");
                         return retval;
                     }
                 },
@@ -766,6 +781,8 @@ var Class = (function Class() {
 
                         currentScope = Object.getPrototypeOf(currentScope);
                     }
+
+                    childDomain.__static = protectedStaticScope;
                 }
             }
 
@@ -940,10 +957,17 @@ var Class = (function Class() {
 
             //User controlled extra data space.
             //definition.Tag = {};
+            var reservedWords = [ "Mode", "Implements", "Mixins", "Extends",
+                                  "Events", "Constructor", "StaticConstructor",
+                                  "Self", "Sibling", "Delegate", "__name",
+                                  "isClass", "classMode", "inheritsFrom",
+                                  "getInterface", "isClassInstance", "__static" ];
 
+            //Pass 1, take care of the definition keywords
             for (var key in definition) {
-                if (definition.hasOwnProperty(key)) {
-                    var prop = definition[key];
+                if (definition.hasOwnProperty(key) && (reservedWords.indexOf(key) > -1)) {
+                    var value = definition[key];
+                    var prop = value;
 
                     // If the prop isn't boxed, then Box it as public.
                     if (!(prop instanceof Box)) {
@@ -961,8 +985,8 @@ var Class = (function Class() {
                                 _classMode = prop.value;
                             else
                                 throw new SyntaxError("Invalid Mode set for this Class!");
-                            
-                            continue;
+
+                            break;
                         case "Implements":
                             if (Array.isArray(prop.value)) {
                                 for (var key in prop.value) {
@@ -981,7 +1005,7 @@ var Class = (function Class() {
 
                             definition[key] = prop.value;
                             //Skip this. We'll handle it later.
-                            continue;
+                            break;
                         case "Mixins":
                             if (prop.value) {
                                 if (!Array.isArray(prop.value))
@@ -999,29 +1023,51 @@ var Class = (function Class() {
                         case "Events":
                             definition[key] = prop.value;
                             //Skip this. We'll handle it later.
-                            continue;
+                            break;
                         case "Constructor":
-                        	if (prop instanceof Box) {
-                        		if (prop.isStatic || prop.isProperty)
-                        			throw new Error("The constructor cannot be static or a property!");
+                            if (prop instanceof Box) {
+                                if (prop.isStatic || prop.isProperty)
+                                    throw new Error("The constructor cannot be static or a property!");
 
-                        		if (!(prop.value instanceof Function))
-                        			throw new Error("The constructor must be a function!");
-                        	}
+                                if (!(prop.value instanceof Function))
+                                    throw new Error("The constructor must be a function!");
+                            }
 
                             staticScope.CreateInstance = createInstance;
                             classConstructor = prop;
-                        	delete definition[key];
-                        	continue;
+                            delete definition[key];
+                            break;
                         case "StaticConstructor":
-                        	if ((prop instanceof Box) &&
-                        	    (prop.isPrivate || prop.isProtected ||
-                        	   	 prop.isProperty || prop.isFinal || prop.isStatic)) {
-                        		throw "The static construct can only be marked Public!" +
-                        			  "Other privilege levels are not allowed.";
+                            if ((prop instanceof Box) &&
+                                (prop.isPrivate || prop.isProtected ||
+                                 prop.isProperty || prop.isFinal || prop.isStatic)) {
+                                throw "The static construct can only be marked Public!" +
+                                      "Other privilege levels are not allowed.";
                             }
 
-                            continue;
+                            value = prop;
+                            break;
+                        default:
+                            throw new Error("The reserved word \"" + key + "\" cannot be an element in the Class definition!");
+                    }
+
+                    //Now hide this key from further iteration
+                    Object.defineProperty(definition, key, { value: value });
+                }
+            }
+
+            //Pass 2, Process the definition
+            for (var key in definition) {
+                if (definition.hasOwnProperty(key) && (reservedWords.indexOf(key) == -1)) {
+                    var prop = definition[key];
+
+                    // If the prop isn't boxed, then Box it as public.
+                    if (!(prop instanceof Box)) {
+                        prop = new Box({
+                            privilege: Privilege.Public,
+                            value: prop
+                        });
+                        definition[key] = prop;
                     }
 
                     //If it's a static element, move it to staticScope, and remap
@@ -1030,6 +1076,9 @@ var Class = (function Class() {
                         staticScope[key] = prop;
                         delete definition[key];
                         makeRedirect(prop, definition, key);
+
+                        if (prop.isProtected)
+                            makeRedirect(prop, protectedStaticScope, key);
                     }
 
                     //If it's a public element, make both publicScope and staticScope
@@ -1049,8 +1098,15 @@ var Class = (function Class() {
                     	makeRedirect(prop, protectedScope, key);
                     }
 
+                    if (prop.isAbstract) {
+                        if (_classMode == Class.ClassModes.Final)
+                            throw new SyntaxError("A \"Final\" class cannot have an \"Abstract\" method!");
+                        _classMode = Class.ClassModes.Abstract;
+                    }
+
                     //Expand all static properties since they won't change and always
                     //need to be available.
+                    ExpandScopeElement(protectedStaticScope, protectedStaticScope, key);
                 	ExpandScopeElement(staticScope, staticScope, key);
                 	ExpandScopeElement(_class, _class, key);
                 }
@@ -1220,7 +1276,12 @@ var Class = (function Class() {
         });
         Object.defineProperty($$.prototype, "isClassInstance", { value: true });
 
-        InheritFrom($$, definition, protectedScope, staticScope);
+        console.log("ProtectedStaticScope before inheritance: " + JSON.stringify(protectedStaticScope));
+
+        InheritFrom($$, definition, protectedScope, staticScope, protectedStaticScope);
+
+        console.log("ProtectedStaticScope after inheritance: " + JSON.stringify(protectedStaticScope));
+
         RegisterEvents($$, definition, staticScope);
 
         if (definition.StaticConstructor) {
@@ -1443,16 +1504,16 @@ var Class = (function Class() {
                             (t.isClass && (v instanceof t)) ||
                             ((t === Function) && (v instanceof Function)) ||
                             ((t === Date) && (v instanceof Date)) ||
-                            (((t === String) || ((typeof t == "string") && (t.toLowerCase == "string"))) && (typeof v == "string")) ||
-                            (((typeof t == "string") && (t.toLowerCase == "number")) && (typeof v == "number")) ||
-                            (((typeof t == "string") && (t.toLowerCase == "boolean")) && (typeof v == "boolean")));
+                            (((t === String) || ((typeof t == "string") && (t.toLowerCase() == "string"))) && (typeof v == "string")) ||
+                            (((typeof t == "string") && (t.toLowerCase() == "number")) && (typeof v == "number")) ||
+                            (((typeof t == "string") && (t.toLowerCase() == "boolean")) && (typeof v == "boolean")));
                 };
 
                 if (type && (type.isClass || type.isInterface || (type === Function) ||
                              (type === String) || (type === Date) ||
-                             ((typeof t == "string") && (t.toLowerCase == "string")) ||
-                             ((typeof t == "string") && (t.toLowerCase == "number"))
-                             ((typeof t == "string") && (t.toLowerCase == "boolean")))) {
+                             ((typeof type == "string") && (type.toLowerCase() == "string")) ||
+                             ((typeof type == "string") && (type.toLowerCase() == "number"))
+                             ((typeof type == "string") && (type.toLowerCase() == "boolean")))) {
                     if (val instanceof Box) {
                         if (isValid(type, val.value)) {
                             retval = val;

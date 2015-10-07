@@ -1515,7 +1515,7 @@ var Class = (function Class() {
                              ((typeof type == "string") && (type.toLowerCase() == "number"))
                              ((typeof type == "string") && (type.toLowerCase() == "boolean")))) {
                     if (val instanceof Box) {
-                        if (isValid(type, val.value)) {
+                        if (isValid(type, val.value) || val.isProperty || isSimpleFunction(val.value)) {
                             retval = val;
                             retval.type = type;
                         }

@@ -284,7 +284,6 @@ var Class = (function Class() {
         if (def && def.Extends) {
             //If it's a non-final Class.js class.
             if (def.Extends.isClass) {
-                console.log("Inheriting from " + def.Extends.__name + " into " + _class.__name);
                 if (def.Extends.classMode === _$.ClassModes.Final)
                     throw new SyntaxError("Cannot extend a Final Class!");
                 
@@ -302,20 +301,16 @@ var Class = (function Class() {
                 for (var key in inherited) {
                     if (inherited.hasOwnProperty(key)) {
                         var value = inherited[key];
-                        console.log("Found member: " + key);
 
                         if (value.isBox) {
-                            console.log("-> Member is a box");
                             if (value.isStatic && !statScope.hasOwnProperty(key)) {
                                 statScope[key] = true;
                                 ExpandScopeElement(statScope, inherited, key, statScope);
                             }
                         }
                         else if (key == "__static") {
-                            console.log("-> Member is an object: " + JSON.stringify(value));
                             Object.setPrototypeOf(statScope, value);
                             Object.setPrototypeOf(protStatScope, value);
-                            console.log("ProtectedStaticScope during inheritance: " + JSON.stringify(protStatScope));
                         }
 
                     }
@@ -399,7 +394,8 @@ var Class = (function Class() {
         do {
             var events = obj.RegisteredEvents || [];
             for (var i=0; i<events.length; ++i)
-                retval.push(events[i]);
+                if (retval.indexOf(events[i]) == -1)
+                    retval.push(events[i]);
 
             obj = obj.InheritsFrom;
         } while (obj);
@@ -1274,14 +1270,9 @@ var Class = (function Class() {
                 }
             }
         });
+
         Object.defineProperty($$.prototype, "isClassInstance", { value: true });
-
-        console.log("ProtectedStaticScope before inheritance: " + JSON.stringify(protectedStaticScope));
-
         InheritFrom($$, definition, protectedScope, staticScope, protectedStaticScope);
-
-        console.log("ProtectedStaticScope after inheritance: " + JSON.stringify(protectedStaticScope));
-
         RegisterEvents($$, definition, staticScope);
 
         if (definition.StaticConstructor) {
@@ -1504,16 +1495,16 @@ var Class = (function Class() {
                             (t.isClass && (v instanceof t)) ||
                             ((t === Function) && (v instanceof Function)) ||
                             ((t === Date) && (v instanceof Date)) ||
-                            (((t === String) || ((typeof t == "string") && (t.toLowerCase() == "string"))) && (typeof v == "string")) ||
-                            (((typeof t == "string") && (t.toLowerCase() == "number")) && (typeof v == "number")) ||
-                            (((typeof t == "string") && (t.toLowerCase() == "boolean")) && (typeof v == "boolean")));
+                            ((t === String) && (typeof v == "string")) ||
+                            ((typeof t == "string") && (t.toLowerCase() == typeof v)));
                 };
 
                 if (type && (type.isClass || type.isInterface || (type === Function) ||
                              (type === String) || (type === Date) ||
-                             ((typeof type == "string") && (type.toLowerCase() == "string")) ||
-                             ((typeof type == "string") && (type.toLowerCase() == "number"))
-                             ((typeof type == "string") && (type.toLowerCase() == "boolean")))) {
+                             ((typeof type == "string") &&
+                              ((type.toLowerCase() == "string") ||
+                               (type.toLowerCase() == "number") ||
+                               (type.toLowerCase() == "boolean"))))) {
                     if (val instanceof Box) {
                         if (isValid(type, val.value) || val.isProperty || isSimpleFunction(val.value)) {
                             retval = val;

@@ -548,7 +548,7 @@ var Class = (function Class() {
                 var retval;
                 if (obj instanceof Function) {
                     retval = function validate_result() {
-                        var r2 = obj.apply(null, arguments);
+                        var r2 = obj.apply(undefined, arguments);
                         if ((r2 !== null) &&
                             (r2 !== undefined) &&
                             ((prop.type.isClass && !(r2 instanceof prop.type)) ||
@@ -595,6 +595,8 @@ var Class = (function Class() {
                     if (_this) {
                         if ((prop.value.get instanceof Function) && prop.value.get.isFunctor)
                             propConfig.get = prop.value.get.rescope(_this);
+                        else if (isSimpleFunction(prop.value.get))
+                            propConfig.get = new Functor(_this, prop.value.get);
                         else
                             propConfig.get = prop.value.get;
 
@@ -603,6 +605,8 @@ var Class = (function Class() {
 
                         if ((prop.value.set instanceof Function) && prop.value.set.isFunctor)
                             propConfig.set = prop.value.set.rescope(_this);
+                        else if (isSimpleFunction(prop.value.set))
+                            propConfig.set = new Functor(_this, prop.value.set);
                         else
                             propConfig.set = prop.value.set;
 

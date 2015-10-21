@@ -611,17 +611,20 @@ var Class = (function Class() {
                             propConfig.set = prop.value.set;
 
                         if (propConfig.set && prop.type)
-                            propConfig.set = validateReturnType(propConfig.set);
+                            propConfig.set = validateAssignType(propConfig.set);
                     }
                     else {
                         if (prop.value.get)
                             propConfig.get = prop.value.get;
 
+                        if (propConfig.get && prop.type)
+                            propConfig.get = validateReturnType(propConfig.get);
+
                         if (prop.value.set)
                             propConfig.set = prop.value.set;
 
                         if (propConfig.set && prop.type)
-                            propConfig.set = validateReturnType(propConfig.set);
+                            propConfig.set = validateAssignType(propConfig.set);
 
                         if (prop.value.value) {
                             propConfig.writable = prop.value.wrtable;
@@ -1286,6 +1289,7 @@ var Class = (function Class() {
             delete definition.StaticConstructor;
         }
 
+        Object.seal(staticScope);
         Object.seal($$);
         return $$;
     };

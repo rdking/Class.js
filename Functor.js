@@ -42,7 +42,7 @@ var Functor = (function() {
                     if (owner === undefined)
                         owner = obj;
 
-                    method.apply(owner, params);
+                    return method.apply(owner, params);
                 }
             },
             rescope: {

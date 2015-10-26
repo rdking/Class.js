@@ -89,7 +89,17 @@ var Enum = function Enum(defValName, params) {
                 return retval;
             }
         },
-        isEnumType: { value: true }
+        isEnumType: { value: true },
+        memberByName: {
+            enumerable: true,
+            value: function memberByName(mName) {
+                var retval = null;
+                if (params.hasOwnProperty(mName))
+                    retval = new $(mName);
+
+                return retval;
+            }
+        }
     });
 	
 	Object.defineProperties($.prototype, {

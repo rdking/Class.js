@@ -555,6 +555,8 @@ var Class = (function Class() {
                              (prop.type.isInterface && !prop.type.isImplementedBy(r2)))) {
                             throw new TypeError("Expected type " + prop.type.__name + ". Recevied type " + typeof(r2));
                         }
+
+                        return r2;
                     }
                 }
                 else

@@ -476,9 +476,15 @@ var Class = (function Class() {
             var args = [].slice.call(arguments, 0);
 
             if (base.isClass || base.isClassInstance) {
-                Object.defineProperty(inheritance, "__isInheritedDomain", {
-                    configurable: true,
-                    value: true
+                Object.defineProperties(inheritance, {
+                    __SuperWasCalled: {
+                        writable: true,
+                        value: false
+                    },
+                    __isInheritedDomain: {
+                        configurable: true,
+                        value: true
+                    }
                 });
                 args.splice(0, 3);
                 args.push(self || _this);
@@ -757,21 +763,23 @@ var Class = (function Class() {
                     if ((classConstructor instanceof Box) && !classConstructor.isPrivate)
                         Object.defineProperty(childDomain, "Super", {
                             enumerable: true,
-                            value: domain.Delegate(classConstructor.value, true)
+                            value: domain.Delegate(function superFunction() {
+                                classConstructor.value.apply(this, arguments);
+                                childDomain.__SuperWasCalled = true;
+                            }, true)
                         });
                     //Otherwise fake one...
                     else {
                         Object.defineProperty(childDomain, "Super", {
                             enumerable: true,
                             value: domain.Delegate(function dummySuper() {
-                                if (this.InheritsFrom)
+                                if (this.InheritsFrom) {
                                     this.Super();
+                                    childDomain.__SuperWasCalled = true;
+                                }
                             }, true)
                         });
                     }
-
-                    //Make sure the child knows who its parent is.
-                    Object.defineProperty(childDomain, "__name", { value: name });
                 }
                 //The only way to get here should be because of an InheritFrom() call.
                 else {
@@ -1176,7 +1184,6 @@ var Class = (function Class() {
             }
         };
 
-
         eval("var $$ = function " + name + "() {\n\
             if (!this.isClassInstance)\n\
                 throw new Error(\"This is a class instance generating function.\" + \n\
@@ -1218,8 +1225,22 @@ var Class = (function Class() {
                 \n\
                 var args = [].slice.call(arguments, 0, argc);\n\
                 \n\
-                if (classConstructor && (!classConstructor.value.length || !childDomain))\n\
-                    classConstructor.value.apply(instance, args);\n\
+                if (classConstructor) {\n\
+                    if (!(childDomain && (childDomain.__isInheritedDomain || childDomain.__isDescendant))) {\n\
+                        classConstructor.value.apply(instance, args);\n\
+                        \n\
+                        if (!instance.__SuperWasCalled && this.InheritsFrom) {\n\
+                            if (instance.Super.length)\n\
+                                throw new Error('No default constructor available in the super class!');\n\
+                            \n\
+                            console.warn('Calling super class constructor. You should be doing this in your code instead!');\n\
+                            instance.Super();\n\
+                        }\n\
+                    }\n\
+                }\n\
+                else if (this.InheritsFrom) {\n\
+                    instance.Super();\n\
+                }\n\
             }\n\
             else if (classConstructor)\n\
                 throw new Error(\"Constructor '" + name + "' is not accessible!\");\n\

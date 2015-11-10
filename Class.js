@@ -1233,7 +1233,7 @@ var Class = (function Class() {
                             if (instance.Super.length)\n\
                                 throw new Error('No default constructor available in the super class!');\n\
                             \n\
-                            console.warn('Calling super class constructor. You should be doing this in your code instead!');\n\
+                            console.warn('Calling this.Super() for you!!!. You should be doing this in your " + name + " constructor!');\n\
                             instance.Super();\n\
                         }\n\
                     }\n\

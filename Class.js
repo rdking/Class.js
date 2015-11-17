@@ -477,10 +477,6 @@ var Class = (function Class() {
 
             if (base.isClass || base.isClassInstance) {
                 Object.defineProperties(inheritance, {
-                    __SuperWasCalled: {
-                        writable: true,
-                        value: false
-                    },
                     __isInheritedDomain: {
                         configurable: true,
                         value: true
@@ -763,20 +759,15 @@ var Class = (function Class() {
                     if ((classConstructor instanceof Box) && !classConstructor.isPrivate)
                         Object.defineProperty(childDomain, "Super", {
                             enumerable: true,
-                            value: domain.Delegate(function superFunction() {
-                                classConstructor.value.apply(this, arguments);
-                                childDomain.__SuperWasCalled = true;
-                            }, true)
+                            value: domain.Delegate(classConstructor.value, true)
                         });
                     //Otherwise fake one...
                     else {
                         Object.defineProperty(childDomain, "Super", {
                             enumerable: true,
                             value: domain.Delegate(function dummySuper() {
-                                if (this.InheritsFrom) {
+                                if (this.InheritsFrom)
                                     this.Super();
-                                    childDomain.__SuperWasCalled = true;
-                                }
                             }, true)
                         });
                     }
@@ -1204,7 +1195,6 @@ var Class = (function Class() {
             if (self && !self.isClassInstance) {\n\
                 self = null;\n\
                 ++argc;\n\
-                \n\
             }\n\
             \n\
             if (($$.classMode === Class.ClassModes.Abstract) &&\n\
@@ -1227,15 +1217,25 @@ var Class = (function Class() {
                 \n\
                 if (classConstructor) {\n\
                     if (!(childDomain && (childDomain.__isInheritedDomain || childDomain.__isDescendant))) {\n\
-                        classConstructor.value.apply(instance, args);\n\
-                        \n\
-                        if (!instance.__SuperWasCalled && this.InheritsFrom) {\n\
-                            if (instance.Super.length)\n\
-                                throw new Error('No default constructor available in the super class!');\n\
+                        if (this.InheritsFrom) {\n\
+                            var hasSuperFirst = /^function\\\s+\\\w+\\\s*\\\((\\\w+\\\s*(,\\\s*\\\w+)*)?\\\)\s*{\\\s*this\\\s*\\\.\\\s*Super\\\s*\\\(/;\n\
+                            var hasSuper = /\\\s*this\\\s*\\\.\\\s*Super\\\s*\\\(/;\n\
+                            var constructorString = classConstructor.value.toString();\n\
                             \n\
-                            console.warn('Calling this.Super() for you!!!. You should be doing this in your " + name + " constructor!');\n\
-                            instance.Super();\n\
+                            if (!hasSuper.test(constructorString)) {\n\
+                                console.warn('Calling this.Super() for you!!!. You should be doing this in your " + name + " constructor!');\n\
+                                \n\
+                                if (instance.Super.length)\n\
+                                    throw new Error('No default constructor available in " + name + "\\\'s super class!');\n\
+                                \n\
+                                instance.Super();\n\
+                            }\n\
+                            else {\n\
+                                if (!hasSuperFirst.test(constructorString))\n\
+                                    console.warn('Super should be the first call in your " + name + " constructor!')\n\
+                            }\n\
                         }\n\
+                        classConstructor.value.apply(instance, args);\n\
                     }\n\
                 }\n\
                 else if (this.InheritsFrom) {\n\

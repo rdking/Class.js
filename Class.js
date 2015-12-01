@@ -1218,7 +1218,7 @@ var Class = (function Class() {
                 if (classConstructor) {\n\
                     if (!(childDomain && (childDomain.__isInheritedDomain || childDomain.__isDescendant))) {\n\
                         if (this.InheritsFrom) {\n\
-                            var hasSuperFirst = /^function\\\s+\\\w+\\\s*\\\((\\\w+\\\s*(,\\\s*\\\w+)*)?\\\)\s*{\\\s*this\\\s*\\\.\\\s*Super\\\s*\\\(/;\n\
+                            var hasSuperFirst = /function\\\s+\\\w+\\\s*\\\((\\\w+\\\s*(,\\\s*\\\w+)*)?\\\)\\\s*{\\\s*this\\\s*\\\.\\\s*Super\\\s*\\\(/;\n\
                             var hasSuper = /\\\s*this\\\s*\\\.\\\s*Super\\\s*\\\(/;\n\
                             var constructorString = classConstructor.value.toString();\n\
                             \n\

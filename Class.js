@@ -703,6 +703,7 @@ var Class = (function Class() {
 
             //We need to manually attach the Event enum.
             Object.defineProperties(domain, {
+                "InheritsFrom": { enumerable: true, value: definition.Extends },
                 "Self": { enumerable: true, value: self || _this },
                 "Sibling": {
                     enumerable: true,

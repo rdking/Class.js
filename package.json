@@ -1,6 +1,6 @@
 {
   "name": "java-class",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "description": "Class.js is a Javascript library designed to allow easy, non-obtrusive creation of Java-like classes without requiring a cross-compiler, and without otherwise interfering with the capabilities of Javascript.",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"

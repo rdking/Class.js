@@ -205,6 +205,12 @@ var Class = (function Class() {
         return ((obj instanceof Function) &&
                 !obj.isClass && !obj.isEnum && !obj.isInterface && !obj.isAttribute);
     };
+    
+    var isNativeConstructor = function isNativeConstructor(fn) {
+        return ((fn instanceof Function) && fn.prototype && 
+                (fn.prototype.constructor instanceof Function) && 
+                (fn.prototype.constructor.toString().indexOf("[native code]") > -1));
+    };
 
     var Unbox = function Unbox(dest, source, _this, shallow, ignore) {
         var currentScope = source;
@@ -474,6 +480,46 @@ var Class = (function Class() {
             var base = _this._superClass.InheritsFrom;
             var inheritance =  {};
             var args = [].slice.call(arguments, 0);
+            
+            if (isNativeConstructor(base)) {
+                if (base.isNativeProxy) {
+                    Object.setPrototypeOf(_this, base.prototype);
+                }
+                else {
+                    var cName = /function\w+(.+)\w*\(/.exec(base)[1] + "_Proxy";
+                    var pubKeys = (Object.getOwnPropertyNames instanceof Function)? Object.getOwnPropertyNames(base): Object.keys(base.prototype);
+                    var statKeys = (Object.getOwnPropertyNames instanceof Function)? Object.getOwnPropertyNames(base): Object.keys(base);
+                    var nBase = base;
+                    var cDef = {
+                        Extends: nBase,
+                        instance: Class.Private(null),
+                        Constructor: Class.Public(function createProxy() {
+                            this.instance = new nBase();
+                        }),
+                        isNativeProxy: Class.Public(Class.Static(Class.Property({
+                            get: function getIsNativeProxy() { return true; }
+                        })))
+                    };
+
+                    for (var i=0; i<pubKeys.length; ++i) {
+                        var key = pubKeys[i];
+                        cDef[key] = Class.Public(Class.Property({
+                            get: function getProperty() { return this.instance[key]; },
+                            set: function setProperty(val) { this.instance[key] = val; }
+                        }))
+                    }
+
+                    for (var i=0; i<statKeys.length; ++i) {
+                        var key = statKeys[i];
+                        cDef[key] = Class.Public(Class.Static(Class.Property({
+                            get: function getProperty() { return this.instance[key]; },
+                            set: function setProperty(val) { this.instance[key] = val; }
+                        })))
+                    }
+
+                    base = new Class(cName, cDef);
+                }
+            }
 
             if (base.isClass || base.isClassInstance) {
                 Object.defineProperties(inheritance, {
@@ -1218,7 +1264,7 @@ var Class = (function Class() {
                 \n\
                 if (classConstructor) {\n\
                     if (!(childDomain && (childDomain.__isInheritedDomain || childDomain.__isDescendant))) {\n\
-                        if (this.InheritsFrom) {\n\
+                        if (this.InheritsFrom && !this.isNativeProxy) {\n\
                             var hasSuperFirst = /function\\\s+\\\w+\\\s*\\\((\\\w+\\\s*(,\\\s*\\\w+)*)?\\\)\\\s*{\\\s*this\\\s*\\\.\\\s*Super\\\s*\\\(/;\n\
                             var hasSuper = /\\\s*this\\\s*\\\.\\\s*Super\\\s*\\\(/;\n\
                             var constructorString = classConstructor.value.toString();\n\

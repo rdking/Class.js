@@ -207,10 +207,14 @@ var Class = (function Class() {
                 !obj.isClass && !obj.isEnum && !obj.isInterface && !obj.isAttribute);
     };
     
+    var isNativeCode = function isNativeCode(fn) {
+        return ((fn instanceof Function) &&
+                (fn.toString().indexOf("[native code]") > -1));
+    };
+    
     var isNativeConstructor = function isNativeConstructor(fn) {
         return ((fn instanceof Function) && fn.prototype && 
-                (fn.prototype.constructor instanceof Function) && 
-                (fn.prototype.constructor.toString().indexOf("[native code]") > -1));
+                isNativeCode(fn.prototype.constructor));
     };
 
     var Unbox = function Unbox(dest, source, _this, shallow, ignore) {
@@ -346,36 +350,52 @@ var Class = (function Class() {
                         def.Extends = proxies[cName];
                     }
                     else {
-                        var pubKeys = (Object.getOwnPropertyNames instanceof Function)? Object.getOwnPropertyNames(base): Object.keys(base.prototype);
+                        var pubKeys = (Object.getOwnPropertyNames instanceof Function)? Object.getOwnPropertyNames(base.prototype): Object.keys(base.prototype);
                         var statKeys = (Object.getOwnPropertyNames instanceof Function)? Object.getOwnPropertyNames(base): Object.keys(base);
+                        var fnKeys = /*[ "prototype" ]; //*/(Object.getOwnPropertyNames instanceof Function)? Object.getOwnPropertyNames(Function): Object.keys(Function);
                         var cDef = {
                             Extends: base,
                             instance: _$.Private(null),
                             Constructor: _$.Public(function createProxy() {
-                                this.instance = new base();
+                                this.instance = base.apply(undefined, (arguments.length)?Array.prototype.slice.call(arguments, 0):undefined);
                             }),
                             isNativeProxy: _$.Public(_$.Static(_$.Property({
                                 get: function getIsNativeProxy() { return true; }
                             })))
                         };
+                        
+                        var getGetter = function getGetter(key) { 
+                            return function getProperty() {
+                                var retval = this.instance[key];
+                                
+                                if (retval instanceof Function)
+                                    retval = new Functor(this.instance, retval);
+                                
+                                return retval;
+                            };
+                        };
+                        var getSetter = function getSetter(key) { return function setProperty(val) { this.instance[key] = val; } };
 
                         for (var i=0; i<pubKeys.length; ++i) {
                             var key = pubKeys[i];
                             cDef[key] = _$.Public(_$.Property({
-                                get: function getProperty() { return this.instance[key]; },
-                                set: function setProperty(val) { this.instance[key] = val; }
+                                get: getGetter(key),
+                                set: getSetter(key),
                             }))
                         }
 
                         for (var i=0; i<statKeys.length; ++i) {
                             var key = statKeys[i];
-                            cDef[key] = _$.Public(_$.Static(_$.Property({
-                                get: function getProperty() { return this.instance[key]; },
-                                set: function setProperty(val) { this.instance[key] = val; }
-                            })))
+                            
+                            if (fnKeys.indexOf(key) === -1) {
+                                cDef[key] = _$.Public(_$.Static(_$.Property({
+                                    get: getGetter(key),
+                                    set: getSetter(key),
+                                })))
+                            }
                         }
 
-                        def.Extends = new Class(cName, cDef);
+                        def.Extends = new _$(cName, cDef);
                     }
 
                     proxies[cName] = def.Extends;
@@ -540,15 +560,14 @@ var Class = (function Class() {
                 args.push(inheritance);
             }
 
-            //Instantiate a new copy of the base class
-            var inst = Object.create(base.prototype);
-
-            //If the superclass is native, things are a little different...
+            //If the superclass is native, we shouldn't instantiate it. The proxy handles that.
             if (isNativeConstructor(base)) {
-                if (!base.isNativeProxy)
-                    throw new Error("WTF? Error while assembling object!");
+                var inst = new base();
             }
             else {
+                //Instantiate a new copy of the base class
+                var inst = Object.create(base.prototype);
+
                 //Make the base class aware we're picking up goodies
                 if (base.isClass || base.isClassInstance)
                     inst.inheritance = inheritance;
@@ -558,8 +577,8 @@ var Class = (function Class() {
                 delete inheritance.__isInheritedDomain;
                 if (base.isClass || base.isClassInstance)
                     delete inst.inheritance;
-                //If there's a child instance waiting for this instance to finish construction...
             }
+            //If there's a child instance waiting for this instance to finish construction...
             if (_this.inheritance) {
                 //Attach our inheritance to the inheritance chain.
                 Object.setPrototypeOf(_this.inheritance, inheritance);
@@ -891,7 +910,7 @@ var Class = (function Class() {
                 var retval = instance[key];
 
                 //If we're returning a function, make sure it's called against the correct object!
-                if ((retval instanceof Function) && !retval.isClass && !retval.isFunctor && !retval.isEnumType)
+                if ((retval instanceof Function) && !isNativeCode(retval) && !retval.isClass && !retval.isFunctor && !retval.isEnumType)
                     retval = new Functor(instance, retval);
 
                 return retval;
@@ -1280,8 +1299,8 @@ var Class = (function Class() {
                 if (classConstructor) {\n\
                     if (!(childDomain && (childDomain.__isInheritedDomain || childDomain.__isDescendant))) {\n\
                         if (this.InheritsFrom && !this.isNativeProxy) {\n\
-                            var hasSuperFirst = /function\\\s+\\\w+\\\s*\\\((\\\w+\\\s*(,\\\s*\\\w+)*)?\\\)\\\s*{\\\s*this\\\s*\\\.\\\s*Super\\\s*\\\(/;\n\
-                            var hasSuper = /\\\s*this\\\s*\\\.\\\s*Super\\\s*\\\(/;\n\
+                            var hasSuperFirst = /function\\\s+\\\w+\\\s*\\\((\\\w+\\\s*(,\\\s*\\\w+)*)?\\\)\\\s*{\\\s*this\\\s*\\\.\\\s*Super\\\s*[\\\(\\\.]/;\n\
+                            var hasSuper = /\\\s*this\\\s*\\\.\\\s*Super\\\s*[\\\(\\\.]/;\n\
                             var constructorString = classConstructor.value.toString();\n\
                             \n\
                             if (!hasSuper.test(constructorString)) {\n\

@@ -63,6 +63,7 @@ if (!(Object.getPrototypeOf instanceof Function)) {
 }
 
 var Class = (function Class() {
+    var proxies = {};
     var Privilege = new Enum("Public", [ "Public", "Protected", "Private" ]);
     var Box = (function Box() {
         var internal = new WeakMap();
@@ -337,21 +338,67 @@ var Class = (function Class() {
                 });
             }
             else if (def.Extends instanceof Function) {
-                Object.setPrototypeOf(_class.prototype, new def.Extends());
-                
-                Object.defineProperty(_class, 'InheritsFrom', {
-                    enumerable: false,
-                    configurable: false,
-                    writable: false,
-                    value: def.Extends
-                });
+                if (isNativeConstructor(def.Extends) && !_class.isNativeProxy) {
+                    var base = def.Extends;
+                    var cName = /function\W+(.+)\W*\(/.exec(base.toString())[1] + "_Proxy";
 
-                Object.defineProperty(_class.prototype, 'InheritsFrom', {
-                    enumerable: false,
-                    configurable: true,
-                    writable: false,
-                    value: def.Extends
-                });
+                    if (proxies.hasOwnProperty(cName)) {
+                        def.Extends = proxies[cName];
+                    }
+                    else {
+                        var pubKeys = (Object.getOwnPropertyNames instanceof Function)? Object.getOwnPropertyNames(base): Object.keys(base.prototype);
+                        var statKeys = (Object.getOwnPropertyNames instanceof Function)? Object.getOwnPropertyNames(base): Object.keys(base);
+                        var cDef = {
+                            Extends: base,
+                            instance: _$.Private(null),
+                            Constructor: _$.Public(function createProxy() {
+                                this.instance = new base();
+                            }),
+                            isNativeProxy: _$.Public(_$.Static(_$.Property({
+                                get: function getIsNativeProxy() { return true; }
+                            })))
+                        };
+
+                        for (var i=0; i<pubKeys.length; ++i) {
+                            var key = pubKeys[i];
+                            cDef[key] = _$.Public(_$.Property({
+                                get: function getProperty() { return this.instance[key]; },
+                                set: function setProperty(val) { this.instance[key] = val; }
+                            }))
+                        }
+
+                        for (var i=0; i<statKeys.length; ++i) {
+                            var key = statKeys[i];
+                            cDef[key] = _$.Public(_$.Static(_$.Property({
+                                get: function getProperty() { return this.instance[key]; },
+                                set: function setProperty(val) { this.instance[key] = val; }
+                            })))
+                        }
+
+                        def.Extends = new Class(cName, cDef);
+                    }
+
+                    proxies[cName] = def.Extends;
+                    //Go back and try again now that we've built the proxy...
+                    InheritFrom(_class, def, protScope, statScope, protStatScope);
+                }
+                else {
+                    Object.setPrototypeOf(_class.prototype, new def.Extends());
+
+                    Object.defineProperty(_class, 'InheritsFrom', {
+                        enumerable: false,
+                        configurable: false,
+                        writable: false,
+                        value: def.Extends
+                    });
+
+                    Object.defineProperty(_class.prototype, 'InheritsFrom', {
+                        enumerable: false,
+                        configurable: true,
+                        writable: false,
+                        value: def.Extends
+                    });
+                }
             }
             else if ((typeof def.Extends === "object") && !Array.isArray(def.Extends)) {
                 var tempConstructor = new function tempConstructor() {};
@@ -480,46 +527,6 @@ var Class = (function Class() {
             var base = _this._superClass.InheritsFrom;
             var inheritance =  {};
             var args = [].slice.call(arguments, 0);
-            
-            if (isNativeConstructor(base)) {
-                if (base.isNativeProxy) {
-                    Object.setPrototypeOf(_this, base.prototype);
-                }
-                else {
-                    var cName = /function\w+(.+)\w*\(/.exec(base)[1] + "_Proxy";
-                    var pubKeys = (Object.getOwnPropertyNames instanceof Function)? Object.getOwnPropertyNames(base): Object.keys(base.prototype);
-                    var statKeys = (Object.getOwnPropertyNames instanceof Function)? Object.getOwnPropertyNames(base): Object.keys(base);
-                    var nBase = base;
-                    var cDef = {
-                        Extends: nBase,
-                        instance: Class.Private(null),
-                        Constructor: Class.Public(function createProxy() {
-                            this.instance = new nBase();
-                        }),
-                        isNativeProxy: Class.Public(Class.Static(Class.Property({
-                            get: function getIsNativeProxy() { return true; }
-                        })))
-                    };
-
-                    for (var i=0; i<pubKeys.length; ++i) {
-                        var key = pubKeys[i];
-                        cDef[key] = Class.Public(Class.Property({
-                            get: function getProperty() { return this.instance[key]; },
-                            set: function setProperty(val) { this.instance[key] = val; }
-                        }))
-                    }
-
-                    for (var i=0; i<statKeys.length; ++i) {
-                        var key = statKeys[i];
-                        cDef[key] = Class.Public(Class.Static(Class.Property({
-                            get: function getProperty() { return this.instance[key]; },
-                            set: function setProperty(val) { this.instance[key] = val; }
-                        })))
-                    }
-
-                    base = new Class(cName, cDef);
-                }
-            }
 
             if (base.isClass || base.isClassInstance) {
                 Object.defineProperties(inheritance, {
@@ -535,16 +542,24 @@ var Class = (function Class() {
 
             //Instantiate a new copy of the base class
             var inst = Object.create(base.prototype);
-            //Make the base class aware we're picking up goodies
-            if (base.isClass || base.isClassInstance)
-                inst.inheritance = inheritance;
-            //Call the constructor
-            base.apply(inst, args);
-            //Get rid of the evidence that we peeked at the parent.
-            delete inheritance.__isInheritedDomain;
-            if (base.isClass || base.isClassInstance)
-                delete inst.inheritance;
-            //If there's a child instance waiting for this instance to finish construction...
+
+            //If the superclass is native, things are a little different...
+            if (isNativeConstructor(base)) {
+                if (!base.isNativeProxy)
+                    throw new Error("WTF? Error while assembling object!");
+            }
+            else {
+                //Make the base class aware we're picking up goodies
+                if (base.isClass || base.isClassInstance)
+                    inst.inheritance = inheritance;
+                //Call the constructor
+                base.apply(inst, args);
+                //Get rid of the evidence that we peeked at the parent.
+                delete inheritance.__isInheritedDomain;
+                if (base.isClass || base.isClassInstance)
+                    delete inst.inheritance;
+                //If there's a child instance waiting for this instance to finish construction...
+            }
             if (_this.inheritance) {
                 //Attach our inheritance to the inheritance chain.
                 Object.setPrototypeOf(_this.inheritance, inheritance);

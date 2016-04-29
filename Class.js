@@ -355,48 +355,10 @@ var Class = (function Class() {
                         var fnKeys = /*[ "prototype" ]; //*/(Object.getOwnPropertyNames instanceof Function)? Object.getOwnPropertyNames(Function): Object.keys(Function);
                         var cDef = {
                             Extends: base,
-                            instance: _$.Private(null),
-                            Constructor: _$.Public(function createProxy() {
-                                this.instance = Object.getPrototypeOf(this);
-                            }),
                             isNativeProxy: _$.Public(_$.Static(_$.Property({
                                 get: function getIsNativeProxy() { return true; }
                             })))
                         };
-                        
-                        var getGetter = function getGetter(key) { 
-                            return function getProperty() {
-                                var retval = this.instance[key];
-                                
-                                if (retval instanceof Function)
-                                    retval = new Functor(this.instance, retval);
-                                
-                                return retval;
-                            };
-                        };
-
-                        var getSetter = function getSetter(key) {
-                            return function setProperty(val) { this.instance[key] = val; }
-                        };
-
-                        for (var i=0; i<pubKeys.length; ++i) {
-                            var key = pubKeys[i];
-                            cDef[key] = _$.Public(_$.Property({
-                                get: getGetter(key),
-                                set: getSetter(key),
-                            }))
-                        }
-
-                        for (var i=0; i<statKeys.length; ++i) {
-                            var key = statKeys[i];
-                            
-                            if (fnKeys.indexOf(key) === -1) {
-                                cDef[key] = _$.Public(_$.Static(_$.Property({
-                                    get: getGetter(key),
-                                    set: getSetter(key),
-                                })))
-                            }
-                        }
 
                         def.Extends = new _$(cName, cDef);
                     }
@@ -545,12 +507,12 @@ var Class = (function Class() {
         //Attach the fully expanded base instance as the new prototype of this instance.
         Object.setPrototypeOf(_this, inst);
 
-        if (old_proto !== Object.prototype) {
+        if (!old_proto.isPrototypeOf(_this)) {
             var obj = _this;
             var proto = Object.getPrototypeOf(_this);
 
             //Find the lowest guy on the prototype chain.
-            while (Object.getPrototypeOf(proto) != Object.prototype) {
+            while ((Object.getPrototypeOf(proto) != Object.prototype) && !obj.isPrototypeOf(inst)) {
                 obj = proto;
                 proto = Object.getPrototypeOf(proto);
             }
@@ -584,11 +546,13 @@ var Class = (function Class() {
                 args.push(self || _this);
                 args.push(inheritance);
             }
-
+            
+            var isNative = isNativeConstructor(base);
             //If the superclass is native, we shouldn't instantiate it. The proxy handles that.
-            if (isNativeConstructor(base)) {
+            if (isNative) {
                 args.unshift(undefined);        //First parameter required by bind but unused because of "new".
                 var inst = new (Function.prototype.bind.apply(base, _args));
+                InjectPrototype(inst, Object.getPrototypeOf(_this));
                 InjectPrototype(instance, inst);
             }
             else {
@@ -613,7 +577,8 @@ var Class = (function Class() {
                 Object.setPrototypeOf(_this, inst);
             }
             else {
-                InjectPrototype(_this, inst);
+                if (!isNative)
+                    InjectPrototype(_this, inst);
             }
 
             //Attach the inheritance to our domain. Now we know everything!
@@ -860,7 +825,7 @@ var Class = (function Class() {
                         Object.defineProperty(childDomain, "Super", {
                             enumerable: true,
                             value: domain.Delegate(function dummySuper() {
-                                if (this.InheritsFrom)
+                                if (this.InheritsFrom && !isNativeConstructor(this.InheritsFrom))
                                     this.Super();
                             }, true)
                         });
@@ -1311,7 +1276,7 @@ var Class = (function Class() {
                 \n\
                 if (classConstructor) {\n\
                     if (!(childDomain && (childDomain.__isInheritedDomain || childDomain.__isDescendant))) {\n\
-                        if (this.InheritsFrom && !this.isNativeProxy) {\n\
+                        if (this.InheritsFrom && !isNativeConstructor(this.InheritsFrom)) {\n\
                             var hasSuperFirst = /function\\\s+\\\w+\\\s*\\\((\\\w+\\\s*(,\\\s*\\\w+)*)?\\\)\\\s*{\\\s*this\\\s*\\\.\\\s*Super\\\s*[\\\(\\\.]/;\n\
                             var hasSuper = /\\\s*this\\\s*\\\.\\\s*Super\\\s*[\\\(\\\.]/;\n\
                             var constructorString = classConstructor.value.toString();\n\
@@ -1332,7 +1297,8 @@ var Class = (function Class() {
                         classConstructor.value.apply(instance, args);\n\
                     }\n\
                 }\n\
-                else if (this.InheritsFrom) {\n\
+                else if (this.InheritsFrom && !isNativeConstructor(this.InheritsFrom)) {\n\
+                    console.log('Calling Super for Class: " + name + "');\n\
                     instance.Super();\n\
                 }\n\
             }\n\

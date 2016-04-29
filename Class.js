@@ -357,7 +357,7 @@ var Class = (function Class() {
                             Extends: base,
                             instance: _$.Private(null),
                             Constructor: _$.Public(function createProxy() {
-                                this.instance = base.apply(undefined, (arguments.length)?Array.prototype.slice.call(arguments, 0):undefined);
+                                this.instance = Object.getPrototypeOf(this);
                             }),
                             isNativeProxy: _$.Public(_$.Static(_$.Property({
                                 get: function getIsNativeProxy() { return true; }
@@ -374,7 +374,10 @@ var Class = (function Class() {
                                 return retval;
                             };
                         };
-                        var getSetter = function getSetter(key) { return function setProperty(val) { this.instance[key] = val; } };
+
+                        var getSetter = function getSetter(key) {
+                            return function setProperty(val) { this.instance[key] = val; }
+                        };
 
                         for (var i=0; i<pubKeys.length; ++i) {
                             var key = pubKeys[i];
@@ -535,7 +538,29 @@ var Class = (function Class() {
             Object.setPrototypeOf(dest, proto);
     };
 
-    var Super = function Super(_this, instance, self) {
+    var InjectPrototype = function InjectPrototype(_this, inst) {
+        //Move the default inheritance chain down to the bottom
+        var old_proto = Object.getPrototypeOf(_this);
+
+        //Attach the fully expanded base instance as the new prototype of this instance.
+        Object.setPrototypeOf(_this, inst);
+
+        if (old_proto !== Object.prototype) {
+            var obj = _this;
+            var proto = Object.getPrototypeOf(_this);
+
+            //Find the lowest guy on the prototype chain.
+            while (Object.getPrototypeOf(proto) != Object.prototype) {
+                obj = proto;
+                proto = Object.getPrototypeOf(proto);
+            }
+
+            //Hook the prototype chain down there.
+            Object.setPrototypeOf(obj, old_proto);
+        }
+    }
+
+    var Super = function Super(_this, instance, self, _args) {
         if (_this._superClass) {
             _this._superClass = _this._superClass.InheritsFrom;
         }
@@ -546,7 +571,7 @@ var Class = (function Class() {
         if (_this._superClass.InheritsFrom) {
             var base = _this._superClass.InheritsFrom;
             var inheritance =  {};
-            var args = [].slice.call(arguments, 0);
+            var args = [];//.slice.call(arguments, 0);
 
             if (base.isClass || base.isClassInstance) {
                 Object.defineProperties(inheritance, {
@@ -555,14 +580,16 @@ var Class = (function Class() {
                         value: true
                     }
                 });
-                args.splice(0, 3);
+                //args.splice(0, 4);
                 args.push(self || _this);
                 args.push(inheritance);
             }
 
             //If the superclass is native, we shouldn't instantiate it. The proxy handles that.
             if (isNativeConstructor(base)) {
-                var inst = new base();
+                args.unshift(undefined);        //First parameter required by bind but unused because of "new".
+                var inst = new (Function.prototype.bind.apply(base, _args));
+                InjectPrototype(instance, inst);
             }
             else {
                 //Instantiate a new copy of the base class
@@ -586,26 +613,12 @@ var Class = (function Class() {
                 Object.setPrototypeOf(_this, inst);
             }
             else {
-                //Move the default inheritance chain down to the bottom
-                var old_proto = Object.getPrototypeOf(_this);
-
-                //Attach the fully expanded base instance as the new prototype of this instance.
-                Object.setPrototypeOf(_this, inst);
-
-                var obj = _this;
-                var proto = Object.getPrototypeOf(_this);
-
-                //Find the lowest guy on the prototype chain.
-                while (Object.getPrototypeOf(proto) != Object.prototype) {
-                    obj = proto;
-                    proto = Object.getPrototypeOf(proto);
-                }
-
-                //Hook the prototype chain down there.
-                Object.setPrototypeOf(obj, old_proto);
+                InjectPrototype(_this, inst);
             }
+
             //Attach the inheritance to our domain. Now we know everything!
-            Object.setPrototypeOf(instance, inheritance);
+            if (!isNativeConstructor(base))
+                Object.setPrototypeOf(instance, inheritance);
 
             //Now, make sure Super is a reference to the unmodified prototype
             //Extend(instance.Super, inheritance);
@@ -773,12 +786,12 @@ var Class = (function Class() {
         var classConstructor;
         var _classMode = Class.ClassModes.Default;
 
-        var initialize = function initialize(_this, childDomain, self) {
+        var initialize = function initialize(_this, childDomain, self, args) {
             var domain = {};
 
             //Construct the base class first, if there is one.
             if (_this.InheritsFrom) {
-                Super(_this, domain, self);
+                Super(_this, domain, self, args);
             }
 
             //We need to manually attach the Event enum.
@@ -1286,15 +1299,15 @@ var Class = (function Class() {
                 ((classConstructor instanceof Box) &&\n\
                  (classConstructor.isPublic ||\n\
                   (childDomain && childDomain.__isInheritedDomain && classConstructor.isProtected)))) {\n\
-                initialize(this, childDomain, self);\n\
+                var args = [].slice.call(arguments, 0, argc);\n\
+                \n\
+                initialize(this, childDomain, self, args);\n\
                 var instance = instances.get(this);\n\
                 \n\
                 if (definition.Mixins)\n\
                     BlendMixins(definition.Mixins, instance);\n\
                 \n\
                 Object.seal(instance);\n\
-                \n\
-                var args = [].slice.call(arguments, 0, argc);\n\
                 \n\
                 if (classConstructor) {\n\
                     if (!(childDomain && (childDomain.__isInheritedDomain || childDomain.__isDescendant))) {\n\

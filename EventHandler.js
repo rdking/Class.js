@@ -11,7 +11,7 @@ var EventHandler = new Class("EventHandler", {
 	listeners: Private(null),
 	
     //Private methods
-    addListener: Private(function addListener(evnt, fn, once){
+    addListener: Private(function addListener(evnt, fn, once, related){
         if (this.listeners == null)
             this.listeners = {};
 
@@ -19,11 +19,18 @@ var EventHandler = new Class("EventHandler", {
 			if (!this.listeners.hasOwnProperty(evnt))
 				this.listeners[evnt] = [];
 				
-			this.listeners[evnt].push({ once: once, handler: fn });
+			this.listeners[evnt].push({ once: once, handler: fn, related: related });
 		}
 		else
 			throw TypeError("Only functions can be event handlers!");		
     }),
+	removeRelatives: Private(function removeRelatives(relatives) {
+		if (withRelatives && handler && (Array.isArray(handler.related) || (handler.related instanceof Array))) {
+			var relatives = handler.related;
+			for (var i=0; i<relatives.length;++i)
+
+		}
+	}),
     
     //Protected Methods
     deferCall: Protected(function deferCall(fn, params) {
@@ -33,13 +40,13 @@ var EventHandler = new Class("EventHandler", {
     }),
 
     //Public Methods
-	addEventListener: Public(function addEventListener(evnt, fn) {
-        this.addListener(evnt, fn, false);
+	addEventListener: Public(function addEventListener(evnt, fn, related) {
+        this.addListener(evnt, fn, false, related);
 	}),
-	addEventListenerOnce: Public(function addEventListenerOnce(evnt, fn) {
-        this.addListener(evnt, fn, true);
+	addEventListenerOnce: Public(function addEventListenerOnce(evnt, fn, related) {
+        this.addListener(evnt, fn, true, related);
 	}),
-	removeEventListener: Public(function removeEventListener(evnt, fn) {
+	removeEventListener: Public(function removeEventListener(evnt, fn, withRelatives) {
         if (this.listeners == null)
             this.listeners = {};
 
@@ -49,8 +56,13 @@ var EventHandler = new Class("EventHandler", {
             
             while ((++index < handlers.length) && (handlers[index].handler !== fn));
 			
-			if (index  < handlers.length)
+			if (index  < handlers.length) {
+				var handler = handlers[index];
 				this.listeners[evnt].splice(index, 1);
+			}
+
+			if (withRelatives)
+				this.removeRelatives(handler.related)
 		}
 	}),
 	fireEvent: Public(function fireEvent(evnt, params) {

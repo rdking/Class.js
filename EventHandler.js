@@ -27,8 +27,10 @@ var EventHandler = new Class("EventHandler", {
 	removeRelatives: Private(function removeRelatives(relatives) {
 		if (withRelatives && handler && (Array.isArray(handler.related) || (handler.related instanceof Array))) {
 			var relatives = handler.related;
-			for (var i=0; i<relatives.length;++i)
-
+			for (var i=0; i<relatives.length; ++i) {
+                var relative = relatives[i];
+                this.removeEventListener(relative.event, relative.method);
+            }
 		}
 	}),
     
@@ -81,6 +83,8 @@ var EventHandler = new Class("EventHandler", {
                 
                 if (!handler.once)
                     keep.push(handler);
+                else if (handler.related)
+                    this.removeRelatives(handler.related);
             }
             
             this.listeners[evnt] = keep;
@@ -102,6 +106,8 @@ var EventHandler = new Class("EventHandler", {
 
                 if (!handler.once)
                     keep.push(handler);
+                else if (handler.related)
+                    this.removeRelatives(handler.related);
             }
 
             this.listeners[evnt] = keep;

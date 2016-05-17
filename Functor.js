@@ -36,15 +36,15 @@ var Functor = (function() {
             isFunctor: {
                 value: true
             },
-            apply: {
+            /*apply: {
                 enumerable: true,
                 value: function apply(owner, params) {
                     if (owner === undefined)
                         owner = obj;
 
-                    return method.apply(owner, params);
+                    method.apply(owner, params);
                 }
-            },
+            },*/
             rescope: {
                 value: function rescope(newObj) {
                     return new Functor(newObj, method);

@@ -67,6 +67,28 @@ var EventHandler = new Class("EventHandler", {
 				this.removeRelatives(handler.related)
 		}
 	}),
+    addRelatedEventListeners: Public(function addRelatedEventListeners(evntList) {
+        for (var i=0; i<evntList.length; ++i) {
+            var evntHandler = evntList[i];
+            var relatives = evntList.slice(0);
+            relatives.splice(i, 1);
+            this.addEventListener(evntHandler.event, evntHandler.method, relatives);
+        }
+    }),
+    addRelatedEventListenersOnce: Public(function addRelatedEventListenersOnce(evntList) {
+        for (var i=0; i<evntList.length; ++i) {
+            var evntHandler = evntList[i];
+            var relatives = evntList.slice(0);
+            relatives.splice(i, 1);
+            this.addEventListenerOnce(evntHandler.event, evntHandler.method, relatives);
+        }
+    }),
+    removeAllHandlers: Public(function removeAllHandlers(evnt) {
+        if (evnt && this.listeners.hasOwnProperty(evnt))
+            this.listeners[evnt] = [];
+        else if (!evnt)
+            this.listeners = {};
+    }),
 	fireEvent: Public(function fireEvent(evnt, params) {
         if (this.listeners == null)
             this.listeners = {};

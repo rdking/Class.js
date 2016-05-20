@@ -25,8 +25,7 @@ var EventHandler = new Class("EventHandler", {
 			throw TypeError("Only functions can be event handlers!");		
     }),
 	removeRelatives: Private(function removeRelatives(relatives) {
-		if (withRelatives && handler && (Array.isArray(handler.related) || (handler.related instanceof Array))) {
-			var relatives = handler.related;
+		if (Array.isArray(relatives) || (relatives instanceof Array)) {
 			for (var i=0; i<relatives.length; ++i) {
                 var relative = relatives[i];
                 this.removeEventListener(relative.event, relative.method);
@@ -64,7 +63,7 @@ var EventHandler = new Class("EventHandler", {
 			}
 
 			if (withRelatives)
-				this.removeRelatives(handler.related)
+				this.removeRelatives(handler.related);
 		}
 	}),
     addRelatedEventListeners: Public(function addRelatedEventListeners(evntList) {

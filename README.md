@@ -152,8 +152,8 @@ var Sample = new class(
                 this[instance] = new this.Instance();
                 */
                 this[instance] = new Sample();
-                ++this[counter];
-                console.log(`Created ${this[counter]} instances.`);
+                ++this[Counter];
+                console.log(`Created ${this[Counter]} instances.`);
             }
 
             return this[instance];
@@ -162,7 +162,7 @@ var Sample = new class(
 
     //Public Instance Method
     getInstanceCount: Public(function() {
-        return this.Counter;
+        return this[Counter];
     })
 });
 

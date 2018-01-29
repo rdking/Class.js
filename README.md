@@ -7,10 +7,14 @@ means is that with Class.js, you can now declare class objects in much the same
 way you would expect in languages like Java, C#, and C++ (but sorry, no multiple
 inheritance).
 
+Class.js comes in 2 flavors: ES5 & ES6. The ES6 implementation brings new syntax
+and is not yet as flexible as the older ES5 version. However, it is a much
+lighter implementation (1/10 the code). The features and syntax support of
+the ES5 version will be added to the ES6 version as time permits.
 
-Example:
+ES5 Example:
 --------
-```
+```javascript
 var Class = require("Class.js");        //The class declarator itself.
 var Private = Class.Private;
 var Protected = Class.Protected;
@@ -28,13 +32,18 @@ var SampleBase = new Class("SampleBase", {
     className: Private("Sample");
 
     //Private Method
-    incrementCounter: Private(function incrementCounter() {
-        ++this.counter;
+    logCounter: Private(function logCounter() {
+        console.log(`logCounter: ${this.counter}`);
     }),
 
     //Protected Property
     Counter: Protected(Property({
-        get: function() { return counter; }
+        get: function() { return this.counter; },
+        set: function(val) {
+            if (!isNaN(val)) {
+                this.counter = val;
+            }
+        }
     })
 
     //Static Constructor
@@ -58,6 +67,7 @@ var Sample = new class("Sample", {
 
     //Instance Constructor
     Constructor: Private(function() {
+        super();
         console.log("Created Sample instance");
     }),
 
@@ -65,8 +75,11 @@ var Sample = new class("Sample", {
     getInstance: Public(Static(function() {
         //'this' inside a static function refers to the
         //class static scope.
-        if (!this.instance)
+        if (!this.instance) {
             this.instance = new this.Instance();
+            ++this.counter;
+            console.log(`Created ${this.counter} instances.`);
+        }
 
         return this.instance;
     })),
@@ -81,6 +94,81 @@ var sample = Sample.getInstance();
 console.log(sample.getInstanceCount());
 ```
 
+ES6 Example (same logic):
+--------
+```javascript
+var Class = require("es6/Class.js");        //The class declarator itself.
+
+//Declare "class SampleBase {}"
+var SampleBase = Class(
+    //Private members
+    {
+        counter: 0,  //static isn't yet supported....
+        className: "Sample",
+        logCounter() {
+            console.log(`counter: ${this.counter}`);
+        },
+        get Counter() { return this[counter]; }, //Protected members are really private.
+        set Counter(val) {
+            if (!isNaN(val)) {
+                this[counter] = val;
+            }
+        }
+    },
+    [ "Counter" ], //share this private member with descendants (Protected)
+    class SampleBase {
+        //Static Constructor isn't yet supported....
+        // StaticConstructor() {
+        //     this.counter = 0;
+        // }
+
+        constructor() {
+            this[incrementCounter]();
+            console.log("Created SampleBase instance #" + this[counter]);
+        }
+    }
+);
+
+//Declare descendant class Sample as a singleton
+var Sample = new class(
+    {
+        instance: null, //private + static isn't yet supported.
+        /* This isn't yet supported
+        constructor() {
+            super();
+            console.log("Created Sample instance");
+        }
+        */
+    },
+    class Sample extends SampleBase {
+        constructor() {
+            super();
+        }
+        static getInstance() {
+            //'this' inside a static function refers to the
+            //class static scope.
+            if (!this[instance]) {
+                /* Internal constructor method ```Instance``` isn't supported yet.
+                this[instance] = new this.Instance();
+                */
+                this[instance] = new Sample();
+                ++this[counter];
+                console.log(`Created ${this[counter]} instances.`);
+            }
+
+            return this[instance];
+        }
+    )),
+
+    //Public Instance Method
+    getInstanceCount: Public(function() {
+        return this.Counter;
+    })
+});
+
+var sample = Sample.getInstance();
+console.log(sample.getInstanceCount());
+```
 WeakMap.js
 ==========
 

@@ -230,7 +230,8 @@ day.name = "Friday";
 console.log(day.value);     //Prints "5"
 day.name = "?"              //Throws!
 day.value = -1;             //Throws!
-console.log(day.isEnum);    //Prints "true"~~
+console.log(day.isEnum);    //Prints "true"
+```
 
 The enum values can be objects as well. Just declare the Enum as an object
 instead of an array.

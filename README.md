@@ -149,7 +149,7 @@ var Sample = new class(
             //class static scope.
             if (!this[instance]) {
                 /* Internal constructor method ```Instance``` isn't supported yet.
-                this[instance] = new this.Instance();
+                this[instance] = new this[Instance]();
                 */
                 this[instance] = new Sample();
                 ++this[Counter];
@@ -196,7 +196,7 @@ used when a callback is needed.
 Example
 -------
 
-```
+```javascript
 var Functor = require("Functor");
 
 var someObj = {
@@ -219,7 +219,7 @@ Enum class as well.
 Example
 -------
 
-```
+```javascript
 var Enum = require("Enum");
 var WeekDay = new Enum("Sunday", ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]);
 
@@ -238,7 +238,7 @@ instead of an array.
 Example
 -------
 
-```
+```javascript
 var ObjectEnum = new Enum("default", {
     default: { foo: null },
     something: { bar: function() {} },

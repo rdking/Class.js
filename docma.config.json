@@ -1,0 +1,24 @@
+{
+	"src": [
+		"./*.js",
+		{
+			"readme": "./README.md"
+		}
+	],
+	"dest": "./doc",
+	"debug": 31,
+	"jsdoc": {
+		"package": "./package.json",
+		"undocumented": false,
+		"heirarchy": true
+	},
+	"app": {
+		"title": "Class.js (npm: java-class) Documentation",
+		"entrance": "content:readme",
+		"routing": "path",
+		"server": "github"
+	},
+	"template": {
+		"path": "default"
+	}
+}

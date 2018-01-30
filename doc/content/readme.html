@@ -1,0 +1,141 @@
+
+<html><head></head><body><h1 id="class-js">Class.js</h1>
+<hr />
+<p>Class.js represents my attempt to add semi-classical object-oriented
+programming capacity to JavaScript without altering the language. What this
+means is that with Class.js, you can now declare class objects in much the same
+way you would expect in languages like Java, C#, and C++ (but sorry, no multiple
+inheritance).</p>
+<h2 id="example-">Example:</h2>
+<pre><code>var Class = require("Class.js");        //The class declarator itself.
+var Private = Class.Private;
+var Protected = Class.Protected;
+var Public = Class.Public;
+var Property = Class.Property;
+var Static = Class.Static;
+var Final = Class.Final;
+
+//Declare "class SampleBase {}"
+var SampleBase = new Class("SampleBase", {
+    //Private Static Data
+    counter: Private(Static(null)),
+
+    //Private Data
+    className: Private("Sample");
+
+    //Private Method
+    incrementCounter: Private(function incrementCounter() {
+        ++this.counter;
+    }),
+
+    //Protected Property
+    Counter: Protected(Property({
+        get: function() { return counter; }
+    })
+
+    //Static Constructor
+    StaticConstructor: function() {
+        this.counter = 0;
+    },
+
+    //Instance Constructor
+    Constructor: Public(function() {
+        this.incrementCounter();
+        console.log("Created SampleBase instance #" + this.counter);
+    })
+});
+
+//Declare descendant class Sample as a singleton
+var Sample = new class("Sample", {
+    Extends: SampleBase,
+
+    //Private Static Data
+    instance: Private(Static(null)),
+
+    //Instance Constructor
+    Constructor: Private(function() {
+        console.log("Created Sample instance");
+    }),
+
+    //Public Static Method
+    getInstance: Public(Static(function() {
+        //'this' inside a static function refers to the
+        //class static scope.
+        if (!this.instance)
+            this.instance = new this.Instance();
+
+        return this.instance;
+    })),
+
+    //Public Instance Method
+    getInstanceCount: Public(function() {
+        return this.Counter;
+    })
+});
+
+var sample = Sample.getInstance();
+console.log(sample.getInstanceCount());
+</code></pre><h1 id="weakmap-js">WeakMap.js</h1>
+<hr />
+<p>To implement Class.js, I needed WeakMap support, which isn't always available. I
+created a shim to take care of that. Since WeakMaps aren't completely
+implementable in pure JavaScript, I created a version that leaks memory as
+little as possible. The result is a WeakMap implementation that only leaks a
+single GUID string per object stored. Short of this leakage, this WeakMap
+should be nearly as secure as the native implementation would be. This WeakMap is
+complete as per the current specification.</p>
+<h1 id="functor-js">Functor.js</h1>
+<hr />
+<p>I also needed a way of reliably being able to ensure that I could call any class
+function on its instance. This meant being able to dynamically re-bind function
+references. Since Function.bind() doesn't allow the re-binding I needed, I
+implemented this little quickie. There's almost no need to use it directly though.
+From any class function, "this.Delegate()" will do the work for you. You can
+pass it the string name of a class member function or a function definition.</p>
+<p>From outside a class instance, Functor can be used to ensure a specific object is
+used when a callback is needed.</p>
+<h2 id="example">Example</h2>
+<pre><code>var Functor = require("Functor");
+
+var someObj = {
+    count: 7
+};
+
+var method = new Functor(someObj, function() {
+    console.log(++this.count);
+});
+
+window.setTimeout(method, 1000);        //Prints "8" 1 second later
+</code></pre><h1 id="enum-js">Enum.js</h1>
+<hr />
+<p>Just because I wanted to be able to constrain a list of values, I created an
+Enum class as well.</p>
+<h2 id="example">Example</h2>
+<pre><code>var Enum = require("Enum");
+var WeekDay = new Enum("Sunday", ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]);
+
+var day = new WeekDay();    //Defaults to "Sunday"
+day.value = 2;              //
+console.log(day.name);      //Prints "Tuesday"
+day.name = "Friday";
+console.log(day.value);     //Prints "5"
+day.name = "?"              //Throws!
+day.value = -1;             //Throws!
+console.log(day.isEnum);    //Prints "true"~~
+
+The enum values can be objects as well. Just declare the Enum as an object
+instead of an array.
+
+Example
+-------
+</code></pre><p>var ObjectEnum = new Enum("default", {
+    default: { foo: null },
+    something: { bar: function() {} },
+});
+```</p>
+<h1 id="a-tutorial-on-this-class-js-library">A Tutorial on this Class.js Library</h1>
+<hr />
+<p>Since this readme can't really convey enough about how to use Class.js, I'm
+making a Wiki tutorial to explain the ins and outs of the library.</p>
+<p><a href="http://thekingsnotice.blogspot.com/2015/03/oojs-5-re-introducing-classjs.html">http://thekingsnotice.blogspot.com/2015/03/oojs-5-re-introducing-classjs.html</a></p>
+</body></html>

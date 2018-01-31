@@ -23,6 +23,7 @@ var METADATA = "__$METADATA$__",
 	PUBLICSCOPE = "__$PUBLICSCOPE$__",
 	PUBLICSTATICSCOPE = "__$PUBLICSTATICSCOPE$__",
 	STATICSCOPE = "__$STATICSCOPE$__";
+	SUPERPROTO = "__$SUPERPROTO$__";
 
 //List of words reserved for use in a Class definition object.
 var DefinitionKeys = [ "Mode", "Implements", "Mixins", "Extends",
@@ -71,7 +72,7 @@ var Interface = require("./Interface");
 
 /**
  * Privilege - An enumeration of the possible privilege levels of Class members.
- * Defaults to "None`"
+ * Defaults to "None"
  *
  * @typedef {Enum} Privilege
  * @prop {number} None - Specifies an unmarked privilege state.
@@ -195,7 +196,7 @@ function initialize(owner, childDomain, topDomain, scopes) {
 		"__isPrivateDomain__": {
 			value: true
 		},
-		"self": {
+		"Self": {
 			value: owner
 		}
 	});
@@ -1143,14 +1144,15 @@ function extend(dest) {
  * @returns {Object} the new scopes container.
  */
 function createScopesContainer() {
-	var retval = {};
-	retval[STATICSCOPE] = {};
-	retval[PRIVATESCOPE] = {};
-	retval[PROTECTEDSCOPE] = {};
-	retval[PROTECTEDSTATICSCOPE] = {};
-	retval[PUBLICSCOPE] = {};
-	retval[PUBLICSTATICSCOPE] = {};
-	return retval;
+	return {
+		[STATICSCOPE]: {},
+		[PRIVATESCOPE]: {},
+		[PROTECTEDSCOPE]: {},
+		[PROTECTEDSTATICSCOPE]: {},
+		[PUBLICSCOPE]: {},
+		[PUBLICSTATICSCOPE]: {},
+		[SUPERPROTO]: {}
+	};
 }
 
 /**
@@ -1161,17 +1163,21 @@ function createScopesContainer() {
  * @param {Object} scopes - Object containing the members sorted by scope.
  */
 function inherit(This, scopes) {
-	var definition = MetaData.get(This).definition;
+	var metadata = MetaData.get(This);
+	var definition = metadata.definition;
 	var extended = definition.Extends || null;
 	var mixinList = definition.Mixins || [];
 
 	//First, handle Extends...
-	if (extended && MetaData.get(extended).isClass) {
-		var extendedScope = MetaData.get(extended).scopes;
+	var eMetadata;
+	if (extended && (eMetadata = MetaData.get(extended)).isClass) {
+		var extendedScope = eMetadata.get(extended).scopes;
 		Object.setPrototypeOf(scopes[PROTECTEDSTATICSCOPE], extendedScope[PROTECTEDSTATICSCOPE]);
 		Object.setPrototypeOf(scopes[PROTECTEDSCOPE], extendedScope[PROTECTEDSCOPE]);
 		Object.setPrototypeOf(scopes[PUBLICSTATICSCOPE], extendedScope[PUBLICSTATICSCOPE]);
 		Object.setPrototypeOf(scopes[PUBLICSCOPE], extended.prototype);
+
+		//We also need to set up the Super() function
 	}
 
 	//Then, handle Mixins...

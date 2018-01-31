@@ -1,0 +1,48 @@
+{
+	// See https://go.microsoft.com/fwlink/?LinkId=733558
+	// for the documentation about the tasks.json format
+	"version": "2.0.0",
+	"tasks": [
+		{
+			"label": "Test Class.js",
+			"type": "npm",
+			"script": "test",
+			"group": {
+				"kind": "test",
+				"isDefault": true
+			},
+			"presentation": {
+				"echo": true,
+				"reveal": "silent",
+				"focus": false,
+				"panel": "shared"
+			},
+			"problemMatcher": {
+                "owner": "mocha",
+                "fileLocation": [
+                    "relative",
+                    "${workspaceRoot}"
+                ],
+                "pattern": [
+					{
+						"regexp": "^\\s+\\d+\\)\\s.*$"
+					},
+					{
+						"regexp": "^\\s+.*:$"
+					},
+                    {
+						"regexp": "^\\s+(\\w+):\\s(.*)$",
+						"severity": 1,
+						"message": 2
+                    },
+                    {
+                        "regexp": "^\\s+at\\s.*\\s\\((.*):(\\d+):(\\d+)\\)$",
+                        "file": 1,
+                        "line": 2,
+                        "column": 3
+                    }
+				]
+			}
+		}
+	]
+}

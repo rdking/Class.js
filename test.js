@@ -5,10 +5,10 @@ var Enum = require('./Enum');
 
 describe('global', () => {
 	it('should exist', () => {
-		global.should.exist;
+		should.exist(global);
 	});
 	it('should be self-referencing', () => {
-		global.should.have.property('global').with.type('object').and.equal(global);
+		should.equal(global.global, global);
 	});
 });
 
@@ -71,34 +71,34 @@ describe('Class', () => {
 
 describe('global', () => {
 	it('should have a static function property named "Private"', () => {
-		global.should.have.property('Private').with.type('function');
+		should(global).have.property('Private').with.type('function');
 	});
 	it('should have a static function property named "Protected"', () => {
-		global.should.have.property('Protected').with.type('function');
+		should(global).have.property('Protected').with.type('function');
 	});
 	it('should have a static function property named "Public"', () => {
-		global.should.have.property('Public').with.type('function');
+		should(global).have.property('Public').with.type('function');
 	});
 	it('should have a static function property named "Property"', () => {
-		global.should.have.property('Property').with.type('function');
+		should(global).have.property('Property').with.type('function');
 	});
 	it('should have a static function property named "Static"', () => {
-		global.should.have.property('Static').with.type('function');
+		should(global).have.property('Static').with.type('function');
 	});
 	it('should have a static function property named "Final"', () => {
-		global.should.have.property('Final').with.type('function');
+		should(global).have.property('Final').with.type('function');
 	});
 	it('should have a static function property named "Abstract"', () => {
-		global.should.have.property('Abstract').with.type('function');
+		should(global).have.property('Abstract').with.type('function');
 	});
 	it('should have a static function property named "Delegate"', () => {
-		global.should.have.property('Delegate').with.type('function');
+		should(global).have.property('Delegate').with.type('function');
 	});
 	it('should have a static function property named "Type"', () => {
-		global.should.have.property('Type').with.type('function');
+		should(global).have.property('Type').with.type('function');
 	});
 	it('should have a static function property named "Modes"', () => {
-		global.should.have.property('Modes').with.type('function');
+		should(global).have.property('Modes').with.type('function');
 	});
 
 	describe('Modes', () => {

@@ -23,6 +23,7 @@ var METADATA = "__$METADATA$__",
 	PUBLICSCOPE = "__$PUBLICSCOPE$__",
 	PUBLICSTATICSCOPE = "__$PUBLICSTATICSCOPE$__",
 	STATICSCOPE = "__$STATICSCOPE$__";
+	SUPERPROTO = "__$SUPERPROTO$__";
 
 //List of words reserved for use in a Class definition object.
 var DefinitionKeys = [ "Mode", "Implements", "Mixins", "Extends",
@@ -197,6 +198,26 @@ function initialize(owner, childDomain, topDomain, scopes) {
 		},
 		"Self": {
 			value: owner
+		},
+		"Super": {
+			value: (function() {
+				var retval = function() {
+					var base = MetaData.get(Object.getPrototypeOf(owner).constructor).definition.Extends;
+					var args = Array.prototype.slice.call(arguments);
+
+					if (isNativeFunction(base)) {
+						var parent = eval("new " + base.name + "('" + args.join("','") + "`)");
+						//TODO: somehow send this upstream to be used by the overconstructor...
+					}
+					else {
+						var parent = Object.create(base.prototype);
+						base.apply(parent, args);
+					}
+				};
+
+				Object.setPrototypeOf(retval, scopes[SUPERPROTO]);
+				return retval;
+			})()
 		}
 	});
 
@@ -1108,13 +1129,38 @@ function modifyBox(box, params, val) {
 		value: val
 	});
 
-	for (var key in params) {
-		if (params.hasOwnProperty(key) && (key in box) && (key != "value")) {
-			box[key] = params[key];
+	extendIf(function(src, key) {
+		return (params.hasOwnProperty(key) && (key in box) && (key != "value"));
+	}, box, params);
+
+	return box;
+}
+
+/**
+ * An exteded version of the classic "extend" function that conditionally
+ * copies properties from the source objects based on the result of a predicate
+ * function.
+ * 
+ * @param {Function} predicate - A function that determines whether or not to
+ * copy a given property from a source object onto the destination object. The
+ * predicate should return true if the property should be copied. *
+ * @param {Object} dest - the final container for all the collected properties
+ * @param {...Object} - Objects with properties to be included on dest
+ * @return {type} - dest, with all the new properties added.
+ */
+function extendIf(predicate, dest) {
+	var sources = Array.prototype.slice.call(arguments, 2);
+
+	while (sources.length) {
+		var src = sources.shift();
+
+		for (var key in src) {
+			if (predicate(src, key))
+				dest[key] = src[key];
 		}
 	}
 
-	return box;
+	return dest;
 }
 
 /**
@@ -1122,19 +1168,14 @@ function modifyBox(box, params, val) {
  * every object arguments[1+] into dest. Shallow copies only. Beware that only
  * the value of the properties are copied. Side effects will not be copied.
  *
- * @param  {Object} dest - the final container for all the collected properties
- * @param  {...Object}  - Objects with properties to be included on dest
+ * @param {Object} dest - the final container for all the collected properties
+ * @param {...Object} - Objects with properties to be included on dest
  * @return {type} - dest, with all the new properties added.
  */
 function extend(dest) {
-	for (var i=1; i<arguments.length; ++i) {
-		var src = arguments[i];
-
-		for (var key in src) {
-			if (src.hasOwnProperty(key))
-				dest[key] = src[key];
-		}
-	}
+	var args = Array.prototype.slice.call(arguments);
+	args.unshift(function(src, key) { return src.hasOwnProperty(key); });
+	return extendIf.apply(args);
 }
 
 /**
@@ -1149,44 +1190,73 @@ function createScopesContainer() {
 		[PROTECTEDSCOPE]: {},
 		[PROTECTEDSTATICSCOPE]: {},
 		[PUBLICSCOPE]: {},
-		[PUBLICSTATICSCOPE]: {}
+		[PUBLICSTATICSCOPE]: {},
+		[SUPERPROTO]: null
 	};
 }
 
 /**
  * Creates a new function object that provides direct access to the constructor,
- * public, and protected methods of the base class.
+ * public, and protected methods and getter/setter properties of the base class.
  * 
- * @param {Object} This - A private instance container
- * @param {Object} scopes - The set of Scope containers for this class.
+ * @param {Object} base - The constructor of the parent class.
+ * @param {Object} baseScopes - The scopes container for the parent class.
  */
-function createSuperProto(This, scopes) {
-	//We also need to set up the prototype for the Super() function.
-	var chain = extended.prototype
-	Object.setPrototypeOf(scopes[SUPERPROTO], chain);
+function createSuperProto(base, baseScopes) {
+	function getSuperKeys(obj) {
+		var retval = [];
+		
+		while (obj && (typeof(obj) == "object") && (obj !== Object.prototype)) {
+			var descriptors = Object.getOwnPropertyDescriptors(obj);
+			var descKeys = Object.keys(descriptors);
+
+			for (var i=0; i<descKeys.length; ++i) {
+				var key = descKeys[i];
+				var descriptor = descriptors[key];
+
+				if ((descriptor.enumerable) &&
+					(!("value" in descriptor) ||
+					 (typeof(descriptor.value == "function")))) {
+					
+					retval.push(key);
+				}
+			}
+
+			obj = Object.getPrototypeOf(obj);
+		}
+
+		return retval;
+	}
 
 	function getDescriptor(parent, key) {
 		var descriptor = Object.getOwnPropertyDescriptor(parent, key);
 		return {
 			enumerable: true,
-			get: (function() {
-				var retval;
-				if (!("value" in descriptor) || (typeof(descriptor.value == "function"))) {
-					retval = parent[key];
-				}
-				if (typeof(parent[key]) == "function")
-					retval = parent[key]
-				return parent[key];
-			}).bind(This),
-			set: (function(val) {
-				this[key] = val;
-			}).bind(This)
+			get: function() {
+				return parent[key]; 
+			}
+		};
+	}
+
+	function defineKeys(dest, keys, src) {
+		//Copy all of the public keys.
+		for (var i=0; i<keys.length; ++i) {
+			var key = keys[i];
+			if (!(key in retval))
+				Object.defineProperty(retval, key, getDescriptor(chain, key));
 		}
 	}
 
-	for (var key in chain) {
-		Object.defineProperty(scopes[SUPERPROTO], key, getDescriptor(chain, key));
-	}
+	var retval = {};
+	var chain = base.prototype;
+	Object.setPrototypeOf(retval, Function.prototype);
+
+	defineKeys(retval, getSuperKeys(baseScopes[PROTECTEDSCOPE]), chain);
+	defineKeys(retval, getSuperKeys(baseScopes[PROTECTEDSTATICSCOPE]), chain);
+	defineKeys(retval, getSuperKeys(baseScopes[PUBLICSCOPE]), chain);
+	defineKeys(retval, getSuperKeys(baseScopes[PUBLICSTATICSCOPE]), chain);
+
+	return retval;
 }
 
 /**
@@ -1205,11 +1275,14 @@ function inherit(This, scopes) {
 	//First, handle Extends...
 	var eMetadata;
 	if (extended && (eMetadata = MetaData.get(extended)).isClass) {
-		var extendedScope = eMetadata.get(extended).scopes;
+		var extendedScope = eMetadata.scopes;
 		Object.setPrototypeOf(scopes[PROTECTEDSTATICSCOPE], extendedScope[PROTECTEDSTATICSCOPE]);
 		Object.setPrototypeOf(scopes[PROTECTEDSCOPE], extendedScope[PROTECTEDSCOPE]);
 		Object.setPrototypeOf(scopes[PUBLICSTATICSCOPE], extendedScope[PUBLICSTATICSCOPE]);
 		Object.setPrototypeOf(scopes[PUBLICSCOPE], extended.prototype);
+
+		//Don't forget to build the Super() prototype
+		scopes[SUPERPROTO] = createSuperProto(extended, extendedScope);
 	}
 
 	//Then, handle Mixins...
@@ -1230,12 +1303,11 @@ function inherit(This, scopes) {
 			var sMixer = {};
 			var fKeys = Object.getOwnPropertyNames(Function.prototype);
 			fKeys.push('prototype');
-			for (var key in obj) {
-				if (obj.hasOwnProperty(key) && (fKeys.indexOf(key) == -1)) {
-					sMixer[key] = obj[key];
-				}
-			}
 			
+			extendIf(function(src, key) {
+				return (src.hasOwnProperty(key) && (fKeys.indexOf(key) == -1));
+			}, obj, sMixer);
+
 			extend(mixer[STATICSCOPE], sMixer);
 			cloneAsLinks(sMixer, mixer[PROTECTEDSTATICSCOPE], mixer[STATICSCOPE]);
 			cloneAsLinks(sMixer, mixer[PUBLICSTATICSCOPE], mixer[STATICSCOPE]);

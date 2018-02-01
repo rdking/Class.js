@@ -23,7 +23,6 @@ var METADATA = "__$METADATA$__",
 	PUBLICSCOPE = "__$PUBLICSCOPE$__",
 	PUBLICSTATICSCOPE = "__$PUBLICSTATICSCOPE$__",
 	STATICSCOPE = "__$STATICSCOPE$__";
-	SUPERPROTO = "__$SUPERPROTO$__";
 
 //List of words reserved for use in a Class definition object.
 var DefinitionKeys = [ "Mode", "Implements", "Mixins", "Extends",
@@ -1150,9 +1149,44 @@ function createScopesContainer() {
 		[PROTECTEDSCOPE]: {},
 		[PROTECTEDSTATICSCOPE]: {},
 		[PUBLICSCOPE]: {},
-		[PUBLICSTATICSCOPE]: {},
-		[SUPERPROTO]: {}
+		[PUBLICSTATICSCOPE]: {}
 	};
+}
+
+/**
+ * Creates a new function object that provides direct access to the constructor,
+ * public, and protected methods of the base class.
+ * 
+ * @param {Object} This - A private instance container
+ * @param {Object} scopes - The set of Scope containers for this class.
+ */
+function createSuperProto(This, scopes) {
+	//We also need to set up the prototype for the Super() function.
+	var chain = extended.prototype
+	Object.setPrototypeOf(scopes[SUPERPROTO], chain);
+
+	function getDescriptor(parent, key) {
+		var descriptor = Object.getOwnPropertyDescriptor(parent, key);
+		return {
+			enumerable: true,
+			get: (function() {
+				var retval;
+				if (!("value" in descriptor) || (typeof(descriptor.value == "function"))) {
+					retval = parent[key];
+				}
+				if (typeof(parent[key]) == "function")
+					retval = parent[key]
+				return parent[key];
+			}).bind(This),
+			set: (function(val) {
+				this[key] = val;
+			}).bind(This)
+		}
+	}
+
+	for (var key in chain) {
+		Object.defineProperty(scopes[SUPERPROTO], key, getDescriptor(chain, key));
+	}
 }
 
 /**
@@ -1176,8 +1210,6 @@ function inherit(This, scopes) {
 		Object.setPrototypeOf(scopes[PROTECTEDSCOPE], extendedScope[PROTECTEDSCOPE]);
 		Object.setPrototypeOf(scopes[PUBLICSTATICSCOPE], extendedScope[PUBLICSTATICSCOPE]);
 		Object.setPrototypeOf(scopes[PUBLICSCOPE], extended.prototype);
-
-		//We also need to set up the Super() function
 	}
 
 	//Then, handle Mixins...

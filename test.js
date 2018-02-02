@@ -157,6 +157,9 @@ describe('Testing "Abstract" Class types', () => {
 						return this.private1;
 					}
 				})),
+				memberTests: Public(function() {
+
+				}),
 				staticTest: Public(Static(Property({
 					get: function getStaticTest() {
 						return this.protected2;
@@ -326,7 +329,16 @@ describe('Testing "Default" Class types', () => {
 								should(this.Super).instanceOf(Function);
 							});
 						});
+						this.APITests();
 					});
+				}),
+				APITests: Public(function APITests() {
+					describe('Class Instance API', () => {
+						it('should expose "this.Delegate"', () => {
+							should(this).have.a.property("Delegate");
+							should(this.Delegate).be.an.instanceOf(Function);
+						})
+					})
 				})
 			};
 			(SubClass = Class('SubClass', subClass)).should.not.fail;
@@ -450,6 +462,115 @@ describe('Testing "Final" Class types', () => {
 				Mode: Modes.Final
 			};
 			(SubSubClass = Class('SubSubClass', subSubClass)).should.not.fail;
+		});
+		describe('SubSubClass', () => {
+			it('should be a function', () => {
+				SubSubClass.should.be.a.function;
+			});
+			it('should have a prototype object', () => {
+				SubSubClass.should.have.property('prototype').with.type('object');
+			});
+			it('should not have a property called "private1"', () => {
+				SubSubClass.should.not.have.property('private1');
+			});
+			it('should not have a property called "private2"', () => {
+				SubSubClass.should.not.have.property('private2');
+			});
+			it('should not have a property called "private3"', () => {
+				SubSubClass.should.not.have.property('private3');
+			});
+			it('should not have a property called "protected1"', () => {
+				SubSubClass.should.not.have.property('protected1');
+			});
+			it('should not have a property called "protected2"', () => {
+				SubSubClass.should.not.have.property('protected2');
+			});
+			it('should not have a property called "protected3"', () => {
+				SubSubClass.should.not.have.property('protected3');
+			});
+			it('should not have a property called "Constructor"', () => {
+				SubSubClass.should.not.have.property('Constructor');
+			});
+			it('should not have a property called "test"', () => {
+				SubSubClass.should.not.have.property('test');
+			});
+			it('should have a property called "staticTest"', () => {
+				SubSubClass.should.have.property('staticTest');
+			});
+			it('should have a property called "staticTest2"', () => {
+				SubSubClass.should.have.property('staticTest2');
+			});
+			it('should not have a property called "scPrivate"', () => {
+				SubSubClass.should.not.have.property('scPrivate');
+			});
+			it('should not have a property called "scProtected"', () => {
+				SubSubClass.should.not.have.property('scProtected');
+			});
+			it('should not have a property called "scPublic"', () => {
+				SubSubClass.should.not.have.property('scPublic');
+			});
+			it('should have a property called "scPublicStatic"', () => {
+				SubSubClass.should.have.property('scPublicStatic');
+			});
+			it('should be able to create an instance of itself', () => {
+				should(new SubSubClass()).not.fail;
+			});
+			describe('staticTest', () => {
+				it('should equal the string "Yes you can!"', () => {
+					SubSubClass.staticTest.should.be.type('string').and.
+						equal("Yes you can!");
+				});
+			});
+			describe('scPublicStatic', () => {
+				it('should equal the string "test"', () => {
+					SubSubClass.scPublicStatic.should.be.type('string').and.
+						equal("test");
+				});
+			});
+			describe('prototype', () => {
+				it('should not have a property called "private1"', () => {
+					SubSubClass.prototype.should.not.have.property('private1');
+				});
+				it('should not have a property called "private2"', () => {
+					SubSubClass.prototype.should.not.have.property('private2');
+				});
+				it('should not have a property called "private3"', () => {
+					SubSubClass.prototype.should.not.have.property('private3');
+				});
+				it('should not have a property called "protected1"', () => {
+					SubSubClass.prototype.should.not.have.property('protected1');
+				});
+				it('should not have a property called "protected2"', () => {
+					SubSubClass.prototype.should.not.have.property('protected2');
+				});
+				it('should not have a property called "protected3"', () => {
+					SubSubClass.prototype.should.not.have.property('protected3');
+				});
+				it('should not have a property called "Constructor"', () => {
+					SubSubClass.prototype.should.not.have.property('Constructor');
+				});
+				it('should have a property called "test"', () => {
+					SubSubClass.prototype.should.have.property('test');
+				});
+				it('should not have a property called "staticTest"', () => {
+					SubSubClass.prototype.should.not.have.property('staticTest');
+				});
+				it('should not have a property called "staticTest2"', () => {
+					SubSubClass.prototype.should.not.have.property('staticTest2');
+				});
+				it('should not have a property called "scPrivate"', () => {
+					SubSubClass.prototype.should.not.have.property('scPrivate');
+				});
+				it('should not have a property called "scProtected"', () => {
+					SubSubClass.prototype.should.not.have.property('scProtected');
+				});
+				it('should have a property called "scPublic"', () => {
+					SubSubClass.prototype.should.have.property('scPublic');
+				});
+				it('should not have a property called "scPublicStatic"', () => {
+					SubSubClass.prototype.should.not.have.property('scPublicStatic');
+				});
+			});
 		});
 	});
 	describe('Creating Class type "FailingClass" ...', () => {

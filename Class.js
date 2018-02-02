@@ -218,6 +218,11 @@ function initialize(owner, childDomain, topDomain, scopes) {
 				Object.setPrototypeOf(retval, scopes[SUPERPROTO]);
 				return retval;
 			})()
+		},
+		"Delegate" : {
+			value: function Delegate(fn) {
+				return new Functor(this, fn);
+			}
 		}
 	});
 
@@ -240,9 +245,7 @@ function initialize(owner, childDomain, topDomain, scopes) {
  * constructor provided in the Class definition. This constructor stages the
  * Class instance and calls the constructor in the Class definition.
  *
- * @param {Object} scopes - Object containing all the member scope objects.		value: true
-	});
-
+ * @param {Object} scopes - Object containing all the member scope objects.
  * @param {Object=} childDomain - the private scope instance from a descendant Class.
  * @param {Object=} self - the public instance reference being constructed.
  * @returns {Object} - The fully constructed instance of the desired class.

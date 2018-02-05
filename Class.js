@@ -11,19 +11,48 @@
  ******************************************************************************/
 
 /*
+	Let's start by figuring out which version of JavaScript we're working with.
+	The module system we use at the bottom will depend on whether or not we
+	have ES6 support.
+ */
+var hasES6 = (function() { 
+	var retval = false;
+
+	try {
+		eval("(...args) => {};"); //If this throws, then no ES6.
+		retval = true;
+		console.warn("ES6 support detected. You might want to use the ES6 version!");
+	} catch(e) {};
+
+	return retval;
+})();
+
+/*
 	These are data keys that help define the Class. Public scope isn't listed
 	here because the Public scope of a Class is its prototype, and the Public
 	Static scope for the Class is the type constructor function that was
 	generated.
 */
-var METADATA = "__$METADATA$__",
-	PRIVATESCOPE = "__$PRIVATESCOPE$__",
-	PROTECTEDSCOPE = "__$PROTECTEDSCOPE$__",
-	PROTECTEDSTATICSCOPE = "__$PROTECTEDSTATICSCOPE$__",
-	PUBLICSCOPE = "__$PUBLICSCOPE$__",
-	PUBLICSTATICSCOPE = "__$PUBLICSTATICSCOPE$__",
-	STATICSCOPE = "__$STATICSCOPE$__";
-	SUPERPROTO = "__$SUPERPROTO$__";
+if (hasES6) {
+	var METADATA = Symbol(),
+		PRIVATESCOPE = Symbol(),
+		PROTECTEDSCOPE = Symbol(),
+		PROTECTEDSTATICSCOPE = Symbol(),
+		PUBLICSCOPE = Symbol(),
+		PUBLICSTATICSCOPE = Symbol(),
+		STATICSCOPE = Symbol(),
+		SUPERPROTO = Symbol();
+}
+else {
+	var METADATA = "__$METADATA$__",
+		PRIVATESCOPE = "__$PRIVATESCOPE$__",
+		PROTECTEDSCOPE = "__$PROTECTEDSCOPE$__",
+		PROTECTEDSTATICSCOPE = "__$PROTECTEDSTATICSCOPE$__",
+		PUBLICSCOPE = "__$PUBLICSCOPE$__",
+		PUBLICSTATICSCOPE = "__$PUBLICSTATICSCOPE$__",
+		STATICSCOPE = "__$STATICSCOPE$__",
+		SUPERPROTO = "__$SUPERPROTO$__";
+}
 
 //List of words reserved for use in a Class definition object.
 var DefinitionKeys = [ "Mode", "Implements", "Mixins", "Extends",
@@ -95,6 +124,12 @@ var ClassModes = new Enum("Default", ["Default", "Abstract", "Final"]);
 
 var MetaData = new WeakMap();
 var Instances = new WeakMap();
+
+/**
+ * Since Box is common logic between the ES5 and ES6 versions, it has been
+ * moved out of this source so it can be used by both version of the library.
+ */
+var Box = (require("./lib/Box"))(Privilege, hasES6);
 
 /**
  * ClassDefError - An exception class used to flag errors in Class definitions.
@@ -223,6 +258,15 @@ function initialize(owner, childDomain, topDomain, scopes) {
 			value: function Delegate(fn) {
 				return new Functor(this, fn);
 			}
+		},
+		"Sibling": {
+			value: function Sibling(other) {
+				var retval;
+				if (other instanceof Object.getPrototypeOf(this.Self).constructor)
+					retval = Instances.get(other);
+
+				return retval;
+			}
 		}
 	});
 
@@ -267,7 +311,7 @@ function typeConstructor(scopes, childDomain, self) {
 
 		Object.seal(instance);
 
-		var args = [].slice.call(arguments, 0, argc);
+		var args = Array.prototype.slice.call(arguments, 3);
 
 		if (classConstructor) {
 			if (!(childDomain && (childDomain.__isInheritedDomain || childDomain.__isDescendant))) {
@@ -321,8 +365,8 @@ function generateTypeConstructor(name, scopes) {
 		 "		throw new ClassError(callErrorString);\n" +
 		 "	}\n" +
 		 "	\n" +
-		 "	var args = Array.prototype.slice(arguments);\n" +
-		 "	args.unshift(scopes, null, null)\n" +
+		 "	var args = Array.prototype.slice.call(arguments);\n" +
+		 "	args.unshift(scopes, null, null);\n" +
 		 "	\n" +
 		 "	return typeConstructor.apply(this, args);\n" +
 		 "});");
@@ -1337,7 +1381,7 @@ function inherit(This, scopes) {
 	Object.setPrototypeOf(This.prototype, Object.getPrototypeOf(scopes[PUBLICSCOPE]));
 }
 
-module.exports = (function _Class() {
+var Class = (function _Class() {
 	/**
 	 * Class - A constructor factory designed to create functions that
 	 * themselves create fully encapsulating, classical classes in JavaScript.
@@ -1698,3 +1742,19 @@ module.exports = (function _Class() {
 	Object.freeze(Class);
 	return Class;
 })();
+
+if (typeof(module) === "object") {
+	//Use require semantics
+	module.exports = Class;
+}
+else if (hasES6) {
+	//Prevents older engines from throwing.
+	try {
+		eval("export default Class;");
+	} catch(e) {
+		console.warn("No known means of exporting 'Class' namespace!");
+	}
+}
+else {
+	console.warn("No known means of exporting 'Class' namespace!");
+}

@@ -1,7 +1,7 @@
 var mocha = require('mocha');
 var should = require('should');
-var Class = require('./Class');
-var Enum = require('./Enum');
+var Class = require('../es6/Class');
+var Enum = require('../Enum');
 
 describe('global', () => {
 	it('should exist', () => {
@@ -25,15 +25,6 @@ describe('Calling Class.InitializeScope to initialize the global scope....', () 
 });
 
 describe('Class', () => {
-	it('should have a static function property named "Private"', () => {
-		Class.should.have.property('Private').with.type('function');
-	});
-	it('should have a static function property named "Protected"', () => {
-		Class.should.have.property('Protected').with.type('function');
-	});
-	it('should have a static function property named "Public"', () => {
-		Class.should.have.property('Public').with.type('function');
-	});
 	it('should have a static function property named "Property"', () => {
 		Class.should.have.property('Property').with.type('function');
 	});
@@ -70,15 +61,6 @@ describe('Class', () => {
 });
 
 describe('global', () => {
-	it('should have a static function property named "Private"', () => {
-		should(global).have.property('Private').with.type('function');
-	});
-	it('should have a static function property named "Protected"', () => {
-		should(global).have.property('Protected').with.type('function');
-	});
-	it('should have a static function property named "Public"', () => {
-		should(global).have.property('Public').with.type('function');
-	});
 	it('should have a static function property named "Property"', () => {
 		should(global).have.property('Property').with.type('function');
 	});
@@ -312,33 +294,46 @@ describe('Testing "Default" Class types', () => {
 					return this.scPrivate + '\n' + this.private2;
 				}),
 				scPublicStatic: Public(Static("test")),
-				Constructor: Public(function createSubClassInstance() {
-					describe('Testing inside SubClass...', () => {
-						describe('Constructor', () => {
-							it('should have a "this" that is a private domain instance', () => {
-								should(this).be.an.instanceOf(Object);
-								should(this === global).equal(false);
-								should(this).have.a.property("__isPrivateDomain__").equal(true);
+				Constructor: Public(function createSubClassInstance(noTest) {
+					if (!noTest) {
+						describe('Testing inside SubClass...', () => {
+							describe('Constructor', () => {
+								it('should have a "this" that is a private domain instance', () => {
+									should(this).be.an.instanceOf(Object);
+									should(this === global).equal(false);
+									should(this).have.a.property("__isPrivateDomain__").equal(true);
+								});
+								it('should have a "this.Self" that is an instance of SubClass', () => {
+									should(this).have.a.property("Self");
+									should(this.Self).instanceOf(SubClass);
+								});
+								it('should have a "this.Super"', () => {
+									should(this).have.a.property("Super");
+									should(this.Super).instanceOf(Function);
+								});
 							});
-							it('should have a "this.Self" that is an instance of SubClass', () => {
-								should(this).have.a.property("Self");
-								should(this.Self).instanceOf(SubClass);
-							});
-							it('should have a "this.Super"', () => {
-								should(this).have.a.property("Super");
-								should(this.Super).instanceOf(Function);
-							});
+							this.APITests();
 						});
-						this.APITests();
-					});
+					}
 				}),
 				APITests: Public(function APITests() {
 					describe('Class Instance API', () => {
 						it('should expose "this.Delegate"', () => {
 							should(this).have.a.property("Delegate");
 							should(this.Delegate).be.an.instanceOf(Function);
-						})
-					})
+							var self = this;
+							(this.Delegate(() => { should(this).be.exactly(self); }))();
+
+						});
+						it('should expose "this.Sibling"', () => {
+							should(this).have.a.property("Sibling");
+							should(this.Sibling).be.an.instanceOf(Function);
+							var that = new (Object.getPrototypeOf(this.Self).constructor)(true);
+							var sibling = this.Sibling(that);
+							should(sibling).have.property("scPrivate");
+							should(sibling.scPrivate).be.exactly(this.scPrivate);
+						});
+					});
 				})
 			};
 			(SubClass = Class('SubClass', subClass)).should.not.fail;

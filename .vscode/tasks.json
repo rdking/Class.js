@@ -5,8 +5,8 @@
 	"tasks": [
 		{
 			"label": "Test Class.js",
-			"type": "npm",
-			"script": "test",
+			"type": "shell",
+			"command": "clear && npm test",
 			"group": {
 				"kind": "test",
 				"isDefault": true

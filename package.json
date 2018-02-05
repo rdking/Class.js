@@ -3,7 +3,7 @@
     "version": "3.0.0",
     "description": "Class.js is a Javascript library designed to allow easy, non-obtrusive creation of Java-like classes without requiring a cross-compiler, and without otherwise interfering with the capabilities of Javascript.",
     "scripts": {
-        "test": "mocha test.js"
+		"test": "mocha tests/**/*.spec.js"
     },
     "repository": {
         "type": "git",

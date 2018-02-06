@@ -3,7 +3,7 @@
     "version": "3.0.0",
     "description": "Class.js is a Javascript library designed to allow easy, non-obtrusive creation of Java-like classes without requiring a cross-compiler, and without otherwise interfering with the capabilities of Javascript.",
     "scripts": {
-		"test": "mocha tests/**/*.spec.js"
+        "test": "for file in $(ls -1 tests/*.spec.js); do mocha $file; done;"
     },
     "repository": {
         "type": "git",
@@ -39,7 +39,7 @@
         "should": "^13.2.1"
     },
     "author": "Ranando D. King <kingmph@gmail.com> (https://thekingsnotice.blogspot.com)",
-    "license": "Apache 2.0",
+    "license": "Apache-2.0",
     "eslintConfig": {
         "parserOptions": {
             "ecmaVersion": 5

@@ -25,6 +25,7 @@
 //-----------------------------------------------------------------------------
 
 console.log("ES6 Class loading...");
+console.log(`Class already exists? ${typeof(Class) === "function"}`);
 /*
 	Let's start by figuring out which version of JavaScript we're working with.
 	If we don't have ES6 support, this approach is entirely useless!
@@ -37,7 +38,7 @@ console.log("ES6 Class loading...");
 	};
 })();
 
-var Protected = Symbol("protected");
+var ProtectedMembers = Symbol("protected");
 var Instance = Symbol("instance");
 
 
@@ -72,13 +73,14 @@ var Privilege = new Enum("None", [ "None", "Public", "Protected", "Private", "Li
 var ClassModes = new Enum("Default", ["Default", "Abstract", "Final"]);
 
 var Box = (require("../lib/Box"))(Privilege, true);
+var { modifyBox, extend, extendIf } = (require("../lib/utils"))(Box, Privilege, true);
 
 function buildClass(parts) {
 	var classDef = `(class ${parts.name} ${(parts.Extends)?"extends " + parts.Extends.name:""} {\n`;
 	if (parts.Constructor) {
 		var ctor;
 		if ((parts.Constructor instanceof Box) &&
-			(parts.constructor.isPublic)
+			(parts.Constructor.isPublic)
 			(parts.Constructor.value instanceof Function)) {
 			ctor = parts.Constructor.value;
 		}
@@ -226,12 +228,12 @@ function Class(pvtScope, protList, classMode, pubScope) {
 			instance = createInstanceProxy(instance, privateNames);
 
 			if (Protected in instance) {
-				var protNames = instance[Protected];
+				var protNames = instance[ProtectedMembers];
 				if (Object.getPrototypeOf(privateNames) !== protNames) {
 					Object.setPrototypeOf(privateNames, protNames);
 					Object.setPrototypeOf(protectedNames, protNames);
 				}
-				delete instance[Protected];
+				delete instance[ProtectedMembers];
 			}
 	
 			for (let i=0; i<keys.length; ++i) {
@@ -240,7 +242,7 @@ function Class(pvtScope, protList, classMode, pubScope) {
 					instance[privateNames[key]] = pvtScope[key];
 			}
 
-			instance[Protected] = protectedNames;
+			instance[ProtectedMembers] = protectedNames;
 			return instance;
 		}
 		
@@ -248,6 +250,76 @@ function Class(pvtScope, protList, classMode, pubScope) {
 		return createClassProxy(_class);
 	}
 };
+
+/**
+ * Private - An access modifier function. Causes val to be encapsulated as
+ * only being accessible to direct instances of the class being described.
+ *
+ * @memberof Class
+ * @function
+ * @param {*} val - A Boxed or unboxed value.
+ * @returns {Box} A new Box instance, or val if it is a Box instance, marked
+ * as Private in either case.
+ */
+function Private(val) {
+	var retval;
+
+	if (val && val.isBox) {
+		retval = modifyBox(val, { privilege: Privilege.Private });
+	}
+	else {
+		retval = modifyBox(null, { privilege: Privilege.Private }, val);
+	}
+
+	return retval;
+}
+
+/**
+ * Protected - An access modifier function. Causes val to be encapsulated as
+ * only being accessible to instances of the class being described and its
+ * subclasses.
+ *
+ * @memberof Class
+ * @function
+ * @param {*} val - A Boxed or unboxed value.
+ * @returns {Box} A new Box instance, or val if it is a Box instance, marked
+ * as Protected in either case.
+ */
+function Protected(val) {
+	var retval;
+
+	if (val && val.isBox) {
+		retval = modifyBox(val, { privilege: Privilege.Protected });
+	}
+	else {
+		retval = modifyBox(null, { privilege: Privilege.Protected }, val);
+	}
+
+	return retval;
+}
+
+/**
+ * Public - An access modifier function. Causes val to be encapsulated as
+ * being openly accessible from the class being described.
+ *
+ * @memberof Class
+ * @function
+ * @param {*} val - A Boxed or unboxed value.
+ * @returns {Box} A new Box instance, or val if it is a Box instance, marked
+ * as Public in either case.
+ */
+function Public(val) {
+	var retval;
+
+	if (val && val.isBox) {
+		retval = modifyBox(val, { privilege: Privilege.Public });
+	}
+	else {
+		retval = modifyBox(null, { privilege: Privilege.Public }, val);
+	}
+
+	return retval;
+}
 
 /**
  * Property - An access modifier function. Requires that val is an object
@@ -428,6 +500,18 @@ Object.defineProperties(Class, {
 	InitializeScope: {
 		value: function Initialize(_global) {
 			Object.defineProperties(_global, {
+				Private: {
+					enumerable: true,
+					value: Private
+				},
+				Protected: {
+					enumerable: true,
+					value: Protected
+				},
+				Public: {
+					enumerable: true,
+					value: Public
+				},
 				Property: {
 					enumerable: true,
 					value: Property
@@ -493,7 +577,7 @@ function createClassProxy(_class) {
 			var retval = Reflect.construct(target, args, newTarget);
 
 			if (target.prototype === newTarget.prototype)
-				delete retval[Protected];	//Clean up our mess before returning.
+				delete retval[ProtectedMembers];	//Clean up our mess before returning.
 
 			return retval;
 		}

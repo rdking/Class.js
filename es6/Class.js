@@ -40,7 +40,6 @@ console.log("ES6 Class loading...");
 var ProtectedMembers = Symbol("protected");
 var Instance = Symbol("instance");
 
-
 /**
  * Enum - Provides the ability to use syntax-checked enumeration values.
  *
@@ -84,8 +83,8 @@ function convertConstructor(ctor) {
 	return retval
 }
 
-function convertFunction(fn) {
-	var retval = fn.replace(/^(?:function\s+)?(?:(\w+)\s*)?\((.*)\)\s*(?:=>)?\s*{/, "$1($2) {");
+function convertFunction(fn, name) {
+	var retval = fn.replace(/^(?:function\s+)?(?:(\w+)\s*)?\((.*)\)\s*(?:=>)?\s*{/, `${name}($2) {`);
 
 	if (retval == fn) {
 		throw TypeError("The parameter needs to at least be a function!");
@@ -111,12 +110,23 @@ function buildClass(parts) {
 			classDef += `\t${ctor}\n`;
 		}
 	}
+
+	var memberKeys = Object.keys(parts.members);
 	
-	for (var i=0; i<parts.members.length; ++i) {
-		var member = parts.members[i];
+	for (var i=0; i<memberKeys.length; ++i) {
+		var key = memberKeys[i];
+		var member = parts.members[key];
 		if (member instanceof Box) {
-			if (member.value instanceof Function) {
-				classDef += `\t${(member.isStatic)?"static ": ""}${convertFunction(member.value.toString())}\n`;
+			if (member.isProperty) {
+				if (member.value.get) {
+					classDef += `\t${(member.isStatic)?"static ": ""}get ${convertFunction(member.value.get.toString(), key)}\n`;
+				}
+				if (member.value.set) {
+					classDef += `\t${(member.isStatic)?"static ": ""}set ${convertFunction(member.value.set.toString(), key)}\n`;
+				}
+			}
+			else if (member.value instanceof Function) {
+				classDef += `\t${(member.isStatic)?"static ": ""}${convertFunction(member.value.toString(), key)}\n`;
 			}
 		}
 		else {
@@ -125,16 +135,8 @@ function buildClass(parts) {
 	}
 	
 	classDef += `});`;
-	console.log(classDef);
 
-	var retval = eval(classDef);
-	if ((parts.StaticConstructor instanceof Box) &&
-		(parts.StaticConstructor.value instanceof Function)) {
-		//Call the static constructor after the class has been created.
-		parts.StaticConstructor.value.call(retval);
-	}
-
-	return retval;
+	return classDef;
 }
 
 /**
@@ -149,7 +151,7 @@ function parseES5(name, definition) {
 		protList: [],
 		classMode: ClassModes.Default
 	};
-	var classParts = { members: [] };
+	var classParts = { members: {} };
 
 	if (name instanceof Object) {
 		definition = name;
@@ -159,6 +161,7 @@ function parseES5(name, definition) {
 	classParts.name = name;
 
 	var keys = Object.keys(definition);
+
 	for (var i=0; i<keys.length; ++i) {
 		var key = keys[i];
 
@@ -182,18 +185,20 @@ function parseES5(name, definition) {
 				classParts.Constructor = definition.Constructor;
 				break;
 			case "StaticConstructor":
-				classParts.StaticConstructor = definition.StaticConstructor;
+				var member = definition.StaticConstructor;
+				retval.StaticConstructor = (member instanceof Box) ? member.value : member;
 				break;
 			default: 
 				if (definition[key] instanceof Box) {
 					var member = definition[key];
 					if (member.isPublic) {
-						classParts.members.push(member);
+						classParts.members[key] = member;
 					}
 					else {
 						retval.pvtScope[key] = member;
-						if (member.isProtected)
-							retval.protList.push[key];
+						if (member.isProtected) {
+							retval.protList.push(key);
+						}
 					}
 				}
 				else {
@@ -205,7 +210,7 @@ function parseES5(name, definition) {
 		}
 	}
 
-	retval.pubScope = buildClass(classParts);
+	retval.pubScopeDef = buildClass(classParts);
 	return retval;
 }
 
@@ -220,28 +225,22 @@ function parseES5(name, definition) {
  * @returns {function} the constructor for the new Class
  */
 function Class(pvtScope, protList, classMode, pubScope) {
-	var keys = Object.keys(pvtScope);
 	var privateNames = {};
+	var privateStaticNames = {};
 	var protectedNames = {};
 	var Constructor = Symbol("constructor");
-
-	/* Create a Symbol for every private name declared */
-	for (let i=0; i<keys.length; ++i) {
-		let key = keys[i];
-		privateNames[key] = Symbol(key);
-	}
-
-	if (!protList && !pubScope) {
-		throw TypeError("A class definition must be the 2nd or 3rd parameter.");
-	}
+	var pubScopeDef;
+	var StaticConstructor;
 
 	switch(arguments.length) {
 		case 1:
 		case 2:
-			var { pvtScope, protList, classMode, pubScope } = parseES5.apply(null, arguments);
+			var { pvtScope, protList, classMode, pubScopeDef, StaticConstructor } = parseES5.apply(null, arguments);
 			break;
 		case 3:
 			pubScope = classMode;
+			pubScopeDef = pubScope.toString();
+				
 			if (Array.isArray(protList)) {
 				classMode = ClassModes.Default;
 			}
@@ -251,11 +250,32 @@ function Class(pvtScope, protList, classMode, pubScope) {
 			}
 			break;
 		case 4:
+			pubScopeDef = pubScope.toString();
 			protList = protList || [];
 			classMode = classMode || ClassModes.Default;
 			break;
+		default: 
+			throw new TypeError("Your request makes no sense!");
 	}
 
+	var keys = Object.keys(pvtScope);
+	console.log(`keys = ${keys}`);
+
+	/* Create a Symbol for every private name declared */
+	for (let i=0; i<keys.length; ++i) {
+		let key = keys[i];
+
+		let member = pvtScope[key];
+		if ((member instanceof Box) && member.isStatic) {
+			privateStaticNames[key] = Symbol(key);
+			console.log(`${key} is private static`);
+		}
+		else {
+			privateNames[key] = Symbol(key);
+			console.log(`${key} is private`);
+		}
+	}
+	
 	/* Map the protected keys into another object. */
 	for (let i=0; i<protList.length; ++i) {
 		let key = protList[i];
@@ -265,52 +285,55 @@ function Class(pvtScope, protList, classMode, pubScope) {
 				get: function getName() { return privateNames[key]; }
 			});
 		}
+		else if (key in privateStaticNames) {
+			Object.defineProperty(protectedNames, key, {
+				enumerable: true,
+				get: function getName() { return privateStaticNames[key]; }
+			});
+		}
 	}
 	
 	/**
 	 * Inject a callout into the constructor so we can setup monitoring and
 	 * the private scope. Make sure to return the proxy instead of "this",
 	 */
-	var isExtension = /^class\s+\w+\s+extends\s+\w+/.test(pubScope.toString());
-	var defString = pubScope.toString().replace(/(\s*)constructor(\s*\(((?:\s*,?\s*\w+)*)\)\s*{(\s*))(super\(.*?\);?\s*)?/,
+	var isExtension = /^class\s+\w+\s+extends\s+\w+/.test(pubScopeDef);
+	var defString = pubScopeDef.replace(/(\s*)constructor(\s*\(((?:\s*,?\s*\w+)*)\)\s*{(\s*))(super\(.*?\);?\s*)?/,
 		"$1constructor$2$5var retval = initPrivateScope(this);$4retval[Constructor]($3);$4return retval;$1}$1\[Constructor\]$2");
-	if (defString == pubScope.toString()) { //Didn't have a constructor to modify
-		defString = pubScope.toString().replace(/^(function\s+\w+\(((?:\s*,?\s*\w+)*)\)\s*{(\s*))/, "$1initPrivateScope(this);$3");
+	if (defString == pubScopeDef) { //Didn't have a constructor to modify
+		defString = pubScopeDef.replace(/^(function\s+\w+\(((?:\s*,?\s*\w+)*)\)\s*{(\s*))/, "$1initPrivateScope(this);$3");
 	}
-	if (defString == pubScope.toString()) { //Wasn't a function declaration
+	if (defString == pubScopeDef) { //Wasn't a function declaration
 		var replacement = `$1constructor() {$2\t${(isExtension)?"super();$2\t":""}return initPrivateScope(this);$2}$2$3`;
-		defString = pubScope.toString().replace(/^(class\s.+?{(\s*))(\w+)?/, replacement);
+		defString = pubScopeDef.replace(/^(class\s.+?{(\s*))(\w+)?/, replacement);
 	}
-	if (defString == pubScope.toString()) {
+	if (defString == pubScopeDef) {
 		throw TypeError('This class definition makes no sense! Give me a "class" or a "function" definition.');
 	}
 
 	with(privateNames) {
-		//Ensures the private scope is fully initialized before construction
-		function initPrivateScope(instance) {
-			instance = createInstanceProxy(instance, privateNames);
+		with(privateStaticNames) {
+			//Ensures the private scope is fully initialized before construction
+			function initPrivateScope(instance) {
+				instance = createInstanceProxy(instance, pvtScope, privateNames, privateStaticNames);
 
-			if (Protected in instance) {
-				var protNames = instance[ProtectedMembers];
-				if (Object.getPrototypeOf(privateNames) !== protNames) {
-					Object.setPrototypeOf(privateNames, protNames);
-					Object.setPrototypeOf(protectedNames, protNames);
+				if (ProtectedMembers in instance) {
+					var protNames = instance[ProtectedMembers];
+					if (Object.getPrototypeOf(privateNames) !== protNames) {
+						Object.setPrototypeOf(privateNames, protNames);
+						Object.setPrototypeOf(protectedNames, protNames);
+					}
+					delete instance[ProtectedMembers];
 				}
-				delete instance[ProtectedMembers];
-			}
-	
-			for (let i=0; i<keys.length; ++i) {
-				let key = keys[i];
-				if (key in pvtScope)
-					instance[privateNames[key]] = pvtScope[key];
-			}
 
-			instance[ProtectedMembers] = protectedNames;
-			return instance;
+				instance[ProtectedMembers] = protectedNames;
+				return instance;
+			}
+			
+			eval(`_class = ${defString.toString()};`);
+
+			return createClassProxy(_class, pvtScope, privateStaticNames, StaticConstructor);
 		}
-		
-		eval(`_class = ${defString.toString()};`);
-		return createClassProxy(_class);
 	}
 };
 
@@ -631,8 +654,48 @@ Object.defineProperties(Class, {
 
 Class.InitializeScope(Class);
 
-function createClassProxy(_class) {
+function unboxMember(scope, dest, key, member) {
+	if (member instanceof Box) {
+		if (member.isProperty) {
+			var def = {
+				enumerable: true,
+				writable: !member.isFinal
+			};
+
+			if (member.isProperty) {
+				if (member.value.get instanceof Function) {
+					def.get = member.value.get.bind(scope);
+				}
+				if (member.value.set instanceof Function) {
+					def.set = member.value.set.bind(scope);
+				}
+			}
+			else {
+				if (member.value instanceof Function) {
+					def.writable = false;
+				}
+			
+				def.value = member.value;	
+			}
+
+			Object.defineProperty(dest, key, def);
+		}
+		else {
+			dest[key] = member.value;
+		}
+	}
+	else {
+		dest[key] = member;
+	}
+}
+
+function createClassProxy(_class, pvtScope, privateStaticNames, StaticConstructor) {
 	var handler = {
+		slots: {
+			type: `Class ${_class.name}`,
+			privateStaticScope: {},
+			privateStaticNames
+		},
 		apply(target) {
 			throw TypeError(`Class constructor ${target.name} cannot be invoked without 'new'`);
 		},
@@ -643,23 +706,67 @@ function createClassProxy(_class) {
 				delete retval[ProtectedMembers];	//Clean up our mess before returning.
 
 			return retval;
+		},
+		get(target, key, receiver) {
+			var retval;
+			if (Object.values(this.slots.privateStaticNames).indexOf(key) >= 0) {
+				retval = this.slots.privateStaticScope[key];
+			}
+			else {
+				retval = Reflect.get(target, key, receiver);
+			}
+			return retval;
+		},
+		set(target, key, value, receiver) {
+			var retval;
+			if (Object.values(this.slots.privateNames).indexOf(key) >= 0) {
+				this.slots.privateScope[key] = value;
+			}
+			else if (Object.values(this.slots.privateStaticNames).indexOf(key) >= 0) {
+				this.slots.privateStaticScope[key] = value;
+			}
+			else {
+				retval = Reflect.set(target, key, value, receiver);
+			}
+			return retval;
+		}
+	};
+
+	var keys = Object.keys(pvtScope);
+	for (let i=0; i<keys.length; ++i) {
+		let key = keys[i];
+		var member = pvtScope[key];
+
+		if (key in privateStaticNames) {
+			unboxMember(_class, handler.slots.privateStaticScope, privateStaticNames[key], member);
+		}
+		else {
+			if (member instanceof Box)
 		}
 	}
-	
+
+	if (StaticConstructor instanceof Function) {
+		StaticConstructor.call(_class);
+	}
+
 	return new Proxy(_class, handler);
 }
 
-function createInstanceProxy(instance, privateNames) {
+function createInstanceProxy(instance, pvtScope, privateNames, privateStaticNames) {
 	var handler = {
 		slots: {
 			type: Object.getPrototypeOf(instance).constructor.name,
 			privateScope: {},
-			privateNames
+			privateNames,
+			privateStaticNames
 		},
 		get(target, key, receiver) {
 			var retval;
 			if (Object.values(this.slots.privateNames).indexOf(key) >= 0) {
 				retval = this.slots.privateScope[key];
+			}
+			else if (Object.values(this.slots.privateStaticNames).indexOf(key) >= 0) {
+				retval = instance.constructor[key];
 			}
 			else {
 				retval = Reflect.get(target, key, receiver);
@@ -678,15 +785,26 @@ function createInstanceProxy(instance, privateNames) {
 			if (Object.values(this.slots.privateNames).indexOf(key) >= 0) {
 				this.slots.privateScope[key] = value;
 			}
+			else if (Object.values(this.slots.privateStaticNames).indexOf(key) >= 0) {
+				instance.constructor[key] = value;
+			}
 			else {
 				retval = Reflect.set(target, key, value, receiver);
 			}
 			return retval;
 		}
+	};
+
+	var keys = Object.keys(pvtScope);
+	for (let i=0; i<keys.length; ++i) {
+		let key = keys[i];
+		if ((key in pvtScope) && (key in privateNames)) {
+			unboxMember(instance, handler.slots.privateScope, privateNames[key], pvtScope[key]);
+		}
 	}
 	
 	return new Proxy(instance, handler);
-}
+};
 
 if (typeof(module) === "object") {
 	//Use require semantics

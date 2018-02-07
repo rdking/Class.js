@@ -147,7 +147,7 @@ describe('Testing ES6-version Class.js...', () => {
 					protected2: Protected(Static('Yes you can!')),
 					protected3: Protected(Property({
 						get: function getProtected3() {
-							return 'Can you ' + this.protected1 + ' ' + this.protected2;
+							return 'Can you ' + this[protected] + ' ' + this[protected2];
 						}
 					})),
 
@@ -162,7 +162,7 @@ describe('Testing ES6-version Class.js...', () => {
 					}),
 					test: Public(Property({
 						get: function getTest() {
-							return this.private1;
+							return this[private1];
 						}
 					})),
 					memberTests: Public(function() {
@@ -170,7 +170,7 @@ describe('Testing ES6-version Class.js...', () => {
 					}),
 					staticTest: Public(Static(Property({
 						get: function getStaticTest() {
-							return this.protected2;
+							return SuperClass[protected2];
 						}
 					}))),
 					staticTest2: Public(Static(function staticTest2() {
@@ -180,22 +180,22 @@ describe('Testing ES6-version Class.js...', () => {
 									this.should.have.property('isStatic');
 								});
 								it('should not have a property called "private1"', () => {
-									this.should.not.have.property('private1');
+									this.should.not.have.property(private1);
 								});
 								it('should have a property called "private2"', () => {
-									this.should.have.property('private2');
+									this.should.have.property(private2);
 								});
 								it('should not have a property called "private3"', () => {
-									this.should.not.have.property('private3');
+									this.should.not.have.property(private3);
 								});
 								it('should not have a property called "protected1"', () => {
-									this.should.not.have.property('protected1');
+									this.should.not.have.property(protected1);
 								});
 								it('should have a property called "protected2"', () => {
-									this.should.have.property('protected2');
+									this.should.have.property(protected2);
 								});
 								it('should not have a property called "protected3"', () => {
-									this.should.not.have.property('protected3');
+									this.should.not.have.property(protected3);
 								});
 								it('should not have a property called "Constructor"', () => {
 									this.should.not.have.property('Constructor');
@@ -223,22 +223,28 @@ describe('Testing ES6-version Class.js...', () => {
 					SuperClass.should.have.property('prototype').with.type('object');
 				});
 				it('should not have a property called "private1"', () => {
-					SuperClass.should.not.have.property('private1');
+					should(typeof(private1)).not.equal("symbol");
+					SuperClass.should.not.have.property("private1");
 				});
 				it('should not have a property called "private2"', () => {
-					SuperClass.should.not.have.property('private2');
+					should(typeof(private2)).not.equal("symbol");
+					SuperClass.should.not.have.property("private2");
 				});
 				it('should not have a property called "private3"', () => {
-					SuperClass.should.not.have.property('private3');
+					should(typeof(private3)).not.equal("symbol");
+					SuperClass.should.not.have.property("private3");
 				});
 				it('should not have a property called "protected1"', () => {
-					SuperClass.should.not.have.property('protected1');
+					should(typeof(protected1)).not.equal("symbol");
+					SuperClass.should.not.have.property("protected1");
 				});
 				it('should not have a property called "protected2"', () => {
-					SuperClass.should.not.have.property('protected2');
+					should(typeof(protected2)).not.equal("symbol");
+					SuperClass.should.not.have.property("protected2");
 				});
 				it('should not have a property called "protected3"', () => {
-					SuperClass.should.not.have.property('protected3');
+					should(typeof(protected3)).not.equal("symbol");
+					SuperClass.should.not.have.property("protected3");
 				});
 				it('should not have a property called "Constructor"', () => {
 					SuperClass.should.not.have.property('Constructor');
@@ -252,33 +258,33 @@ describe('Testing ES6-version Class.js...', () => {
 				it('should have a property called "staticTest2"', () => {
 					SuperClass.should.have.property('staticTest2');
 				});
-				after(() => {
-					SuperClass.staticTest2();
-				});
 				describe('staticTest', () => {
 					it('should equal the string "Yes you can!"', () => {
-						SuperClass.staticTest.should.be.type('string').and.
-							equal("Yes you can!");
-					})
+						should(SuperClass.staticTest).be.type('string').and.
+						equal("Yes you can!");
+					});
+					after(() => {
+						SuperClass.staticTest2();
+					});
 				});
 				describe('prototype', () => {
 					it('should not have a property called "private1"', () => {
-						SuperClass.prototype.should.not.have.property('private1');
+						SuperClass.prototype.should.not.have.property("private1");
 					});
 					it('should not have a property called "private2"', () => {
-						SuperClass.prototype.should.not.have.property('private2');
+						SuperClass.prototype.should.not.have.property("private2");
 					});
 					it('should not have a property called "private3"', () => {
-						SuperClass.prototype.should.not.have.property('private3');
+						SuperClass.prototype.should.not.have.property("private3");
 					});
 					it('should not have a property called "protected1"', () => {
-						SuperClass.prototype.should.not.have.property('protected1');
+						SuperClass.prototype.should.not.have.property("protected1");
 					});
 					it('should not have a property called "protected2"', () => {
-						SuperClass.prototype.should.not.have.property('protected2');
+						SuperClass.prototype.should.not.have.property("protected2");
 					});
 					it('should not have a property called "protected3"', () => {
-						SuperClass.prototype.should.not.have.property('protected3');
+						SuperClass.prototype.should.not.have.property("protected3");
 					});
 					it('should not have a property called "Constructor"', () => {
 						SuperClass.prototype.should.not.have.property('Constructor');
@@ -324,18 +330,50 @@ describe('Testing ES6-version Class.js...', () => {
 						if (!noTest) {
 							describe('Testing inside SubClass...', () => {
 								describe('Constructor', () => {
-									it('should have a "this" that is a private domain instance', () => {
-										should(this).be.an.instanceOf(Object);
-										should(this === global).equal(false);
-										should(this).have.a.property("__isPrivateDomain__").equal(true);
+									it('should have a "this" that is an instance of SubClass', () => {
+										should(this).be.an.instanceOf(SubClass);
 									});
-									it('should have a "this.Self" that is an instance of SubClass', () => {
-										should(this).have.a.property("Self");
-										should(this.Self).instanceOf(SubClass);
+									it('should not have a property called "private1"', () => {
+										SubClass.should.not.have.property('private1');
 									});
-									it('should have a "this.Super"', () => {
-										should(this).have.a.property("Super");
-										should(this.Super).instanceOf(Function);
+									it('should not have a property called "private2"', () => {
+										SubClass.should.not.have.property('private2');
+									});
+									it('should not have a property called "private3"', () => {
+										SubClass.should.not.have.property('private3');
+									});
+									it('should have a property called "protected1"', () => {
+										SubClass.should.have.property('protected1');
+									});
+									it('should have a property called "protected2"', () => {
+										SubClass.should.have.property('protected2');
+									});
+									it('should have a property called "protected3"', () => {
+										SubClass.should.have.property('protected3');
+									});
+									it('should not have a property called "Constructor"', () => {
+										SubClass.should.not.have.property('Constructor');
+									});
+									it('should have a property called "test"', () => {
+										SubClass.should.have.property('test');
+									});
+									it('should have a property called "staticTest"', () => {
+										SubClass.should.have.property('staticTest');
+									});
+									it('should have a property called "staticTest2"', () => {
+										SubClass.should.have.property('staticTest2');
+									});
+									it('should have a property called "scPrivate"', () => {
+										SubClass.should.have.property('scPrivate');
+									});
+									it('should have a property called "scProtected"', () => {
+										SubClass.should.have.property('scProtected');
+									});
+									it('should n have a property called "scPublic"', () => {
+										SubClass.should.have.property('scPublic');
+									});
+									it('should have a property called "scPublicStatic"', () => {
+										SubClass.should.have.property('scPublicStatic');
 									});
 								});
 								this.APITests();

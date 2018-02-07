@@ -25,7 +25,6 @@
 //-----------------------------------------------------------------------------
 
 console.log("ES6 Class loading...");
-console.log(`Class already exists? ${typeof(Class) === "function"}`);
 /*
 	Let's start by figuring out which version of JavaScript we're working with.
 	If we don't have ES6 support, this approach is entirely useless!
@@ -75,19 +74,67 @@ var ClassModes = new Enum("Default", ["Default", "Abstract", "Final"]);
 var Box = (require("../lib/Box"))(Privilege, true);
 var { modifyBox, extend, extendIf } = (require("../lib/utils"))(Box, Privilege, true);
 
+function convertConstructor(ctor) {
+	var retval = ctor.replace(/^(?:function\s+)?(?:\w+)?\((.*)\)\s*(?:=>)?\s*{/, "constructor($1) {");
+
+	if (retval == ctor) {
+		throw TypeError("The constructor needs to at least be a function!");
+	}
+	
+	return retval
+}
+
+function convertFunction(fn) {
+	var retval = fn.replace(/^(?:function\s+)?(?:(\w+)\s*)?\((.*)\)\s*(?:=>)?\s*{/, "$1($2) {");
+
+	if (retval == fn) {
+		throw TypeError("The parameter needs to at least be a function!");
+	}
+	
+	return retval
+}
+
+/**
+ * Converts an ES5-style class definition into the ES6-style parameters needed
+ * by this version of Class.js.
+ * @param {Object} parts - contains the compartmentalized definition of the
+ * ES6-style class to be constructed.
+ */
 function buildClass(parts) {
 	var classDef = `(class ${parts.name} ${(parts.Extends)?"extends " + parts.Extends.name:""} {\n`;
 	if (parts.Constructor) {
 		var ctor;
 		if ((parts.Constructor instanceof Box) &&
-			(parts.Constructor.isPublic)
-			(parts.Constructor.value instanceof Function)) {
-			ctor = parts.Constructor.value;
+		parts.Constructor.isPublic &&
+		(parts.Constructor.value instanceof Function)) {
+			ctor = convertConstructor(parts.Constructor.value.toString());
+			classDef += `\t${ctor}\n`;
 		}
 	}
-	classDef += `})`;
+	
+	for (var i=0; i<parts.members.length; ++i) {
+		var member = parts.members[i];
+		if (member instanceof Box) {
+			if (member.value instanceof Function) {
+				classDef += `\t${(member.isStatic)?"static ": ""}${convertFunction(member.value.toString())}\n`;
+			}
+		}
+		else {
+			throw TypeError("I think you forgot to apply a privilege level to one of the members");
+		}
+	}
+	
+	classDef += `});`;
+	console.log(classDef);
 
-	return eval(classDef);
+	var retval = eval(classDef);
+	if ((parts.StaticConstructor instanceof Box) &&
+		(parts.StaticConstructor.value instanceof Function)) {
+		//Call the static constructor after the class has been created.
+		parts.StaticConstructor.value.call(retval);
+	}
+
+	return retval;
 }
 
 /**
@@ -138,7 +185,23 @@ function parseES5(name, definition) {
 				classParts.StaticConstructor = definition.StaticConstructor;
 				break;
 			default: 
-				classParts.members.push(definition[key]);
+				if (definition[key] instanceof Box) {
+					var member = definition[key];
+					if (member.isPublic) {
+						classParts.members.push(member);
+					}
+					else {
+						retval.pvtScope[key] = member;
+						if (member.isProtected)
+							retval.protList.push[key];
+					}
+				}
+				else {
+					classParts.members.push(new Box({
+						value: definition[key],
+						privilege: Privilege.Public
+					}));
+				}
 		}
 	}
 
@@ -216,7 +279,7 @@ function Class(pvtScope, protList, classMode, pubScope) {
 	}
 	if (defString == pubScope.toString()) { //Wasn't a function declaration
 		var replacement = `$1constructor() {$2\t${(isExtension)?"super();$2\t":""}return initPrivateScope(this);$2}$2$3`;
-		defString = pubScope.toString().replace(/^(class\s.+?{(\s*))(\w+)/, replacement);
+		defString = pubScope.toString().replace(/^(class\s.+?{(\s*))(\w+)?/, replacement);
 	}
 	if (defString == pubScope.toString()) {
 		throw TypeError('This class definition makes no sense! Give me a "class" or a "function" definition.');

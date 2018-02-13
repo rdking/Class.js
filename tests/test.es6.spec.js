@@ -136,7 +136,7 @@ describe('Testing ES6-version Class.js...', () => {
 					private1: Private("Successful Test!"),
 					private2: Private(Static(42)),
 					private3: Private(Property({
-						get: function getPrivate3() { return this.Private1 * 2; },
+						get: function getPrivate3() { return this[private2] * 2; },
 						set: function setPrivate3(val) {
 							console.log('You tried to set private3 to ' + val + ' ...');
 						}
@@ -175,27 +175,37 @@ describe('Testing ES6-version Class.js...', () => {
 					}))),
 					staticTest2: Public(Static(function staticTest2() {
 						describe('Testing inside "SuperClass"', () => {
+							var should;
+							before(()=>{
+								should = require('should');
+							});
 							describe('<Static Scope>', () => {
 								it('should be the static scope', () => {
-									this.should.have.property('isStatic');
+									this.should.equal(SuperClass);
 								});
 								it('should not have a property called "private1"', () => {
 									this.should.not.have.property(private1);
+									should(this[private1]).not.equal("Successful Test!");
 								});
 								it('should have a property called "private2"', () => {
-									this.should.have.property(private2);
+									this.should.not.have.property(private2);
+									should(this[private2]).equal(42);
 								});
 								it('should not have a property called "private3"', () => {
 									this.should.not.have.property(private3);
+									should(this[private3]).not.equal(84);
 								});
 								it('should not have a property called "protected1"', () => {
 									this.should.not.have.property(protected1);
+									should(this[protected1]).not.equal('see me?');
 								});
 								it('should have a property called "protected2"', () => {
-									this.should.have.property(protected2);
+									this.should.not.have.property(protected2);
+									should(this[protected2]).equal('Yes you can!');
 								});
 								it('should not have a property called "protected3"', () => {
 									this.should.not.have.property(protected3);
+									should(this[protected3]).not.equal('Can you see me? Yes you can!');
 								});
 								it('should not have a property called "Constructor"', () => {
 									this.should.not.have.property('Constructor');
@@ -260,8 +270,7 @@ describe('Testing ES6-version Class.js...', () => {
 				});
 				describe('staticTest', () => {
 					it('should equal the string "Yes you can!"', () => {
-						should(SuperClass.staticTest).be.type('string').and.
-						equal("Yes you can!");
+						should(SuperClass.staticTest).be.type('string').and.equal("Yes you can!");
 					});
 					after(() => {
 						SuperClass.staticTest2();
@@ -327,8 +336,13 @@ describe('Testing ES6-version Class.js...', () => {
 					}),
 					scPublicStatic: Public(Static("test")),
 					Constructor: Public(function createSubClassInstance(noTest) {
+						this.Super();
 						if (!noTest) {
+							var should;
 							describe('Testing inside SubClass...', () => {
+								begin(()=> {
+									should = require('should');
+								});
 								describe('Constructor', () => {
 									it('should have a "this" that is an instance of SubClass', () => {
 										should(this).be.an.instanceOf(SubClass);

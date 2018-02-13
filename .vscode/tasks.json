@@ -8,7 +8,7 @@
 			"type": "shell",
 			"command": "clear && npm test",
 			"group": {
-				"kind": "test",
+				"kind": "build",
 				"isDefault": true
 			},
 			"presentation": {
@@ -18,29 +18,29 @@
 				"panel": "shared"
 			},
 			"problemMatcher": {
-                "owner": "mocha",
-                "fileLocation": [
-                    "relative",
-                    "${workspaceRoot}"
-                ],
-                "pattern": [
+				"owner": "mocha",
+				"fileLocation": [
+					"relative",
+					"${workspaceRoot}"
+				],
+				"pattern": [
 					{
 						"regexp": "^\\s+\\d+\\)\\s.*$"
 					},
 					{
 						"regexp": "^\\s+.*:$"
 					},
-                    {
+					{
 						"regexp": "^\\s+(\\w+):\\s(.*)$",
 						"severity": 1,
 						"message": 2
-                    },
-                    {
-                        "regexp": "^\\s+at\\s.*\\s\\((.*):(\\d+):(\\d+)\\)$",
-                        "file": 1,
-                        "line": 2,
-                        "column": 3
-                    }
+					},
+					{
+						"regexp": "^\\s+at\\s.*\\s\\((.*):(\\d+):(\\d+)\\)$",
+						"file": 1,
+						"line": 2,
+						"column": 3
+					}
 				]
 			}
 		}

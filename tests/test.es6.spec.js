@@ -147,7 +147,7 @@ describe('Testing ES6-version Class.js...', () => {
 					protected2: Protected(Static('Yes you can!')),
 					protected3: Protected(Property({
 						get: function getProtected3() {
-							return 'Can you ' + this[protected] + ' ' + this[protected2];
+							return 'Can you ' + this[protected1] + ' ' + this[protected2];
 						}
 					})),
 
@@ -184,26 +184,32 @@ describe('Testing ES6-version Class.js...', () => {
 									this.should.equal(SuperClass);
 								});
 								it('should not have a property called "private1"', () => {
+									should(typeof(private1)).equal("symbol");
 									this.should.not.have.property(private1);
 									should(this[private1]).not.equal("Successful Test!");
 								});
 								it('should have a property called "private2"', () => {
-									this.should.not.have.property(private2);
+									should(typeof(private2)).equal("symbol");
+									this.should.have.property(private2);
 									should(this[private2]).equal(42);
 								});
 								it('should not have a property called "private3"', () => {
+									should(typeof(private3)).equal("symbol");
 									this.should.not.have.property(private3);
 									should(this[private3]).not.equal(84);
 								});
 								it('should not have a property called "protected1"', () => {
+									should(typeof(protected1)).equal("symbol");
 									this.should.not.have.property(protected1);
 									should(this[protected1]).not.equal('see me?');
 								});
 								it('should have a property called "protected2"', () => {
-									this.should.not.have.property(protected2);
+									should(typeof(protected2)).equal("symbol");
+									this.should.have.property(protected2);
 									should(this[protected2]).equal('Yes you can!');
 								});
 								it('should not have a property called "protected3"', () => {
+									should(typeof(protected3)).equal("symbol");
 									this.should.not.have.property(protected3);
 									should(this[protected3]).not.equal('Can you see me? Yes you can!');
 								});
@@ -340,7 +346,7 @@ describe('Testing ES6-version Class.js...', () => {
 						if (!noTest) {
 							var should;
 							describe('Testing inside SubClass...', () => {
-								begin(()=> {
+								before(()=> {
 									should = require('should');
 								});
 								describe('Constructor', () => {
@@ -348,28 +354,31 @@ describe('Testing ES6-version Class.js...', () => {
 										should(this).be.an.instanceOf(SubClass);
 									});
 									it('should not have a property called "private1"', () => {
-										SubClass.should.not.have.property('private1');
+										should(typeof(private1)).equal("undefined");
 									});
 									it('should not have a property called "private2"', () => {
-										SubClass.should.not.have.property('private2');
+										should(typeof(private2)).equal("undefined");
 									});
 									it('should not have a property called "private3"', () => {
-										SubClass.should.not.have.property('private3');
+										should(typeof(private3)).equal("undefined");
 									});
 									it('should have a property called "protected1"', () => {
-										SubClass.should.have.property('protected1');
+										should(typeof(protected1)).equal("symbol");
+										this.should.have.property(protected1);
 									});
 									it('should have a property called "protected2"', () => {
-										SubClass.should.have.property('protected2');
+										should(typeof(protected2)).equal("symbol");
+										this.should.have.property(protected2);
 									});
 									it('should have a property called "protected3"', () => {
-										SubClass.should.have.property('protected3');
+										should(typeof(protected3)).equal("symbol");
+										this.should.have.property(protected3);
 									});
 									it('should not have a property called "Constructor"', () => {
-										SubClass.should.not.have.property('Constructor');
+										this.should.not.have.property('Constructor');
 									});
 									it('should have a property called "test"', () => {
-										SubClass.should.have.property('test');
+										this.should.have.property('test');
 									});
 									it('should have a property called "staticTest"', () => {
 										SubClass.should.have.property('staticTest');
@@ -378,13 +387,15 @@ describe('Testing ES6-version Class.js...', () => {
 										SubClass.should.have.property('staticTest2');
 									});
 									it('should have a property called "scPrivate"', () => {
-										SubClass.should.have.property('scPrivate');
+										should(typeof(scPrivate)).equal("symbol");
+										this.should.have.property(scPrivate);
 									});
 									it('should have a property called "scProtected"', () => {
-										SubClass.should.have.property('scProtected');
+										should(typeof(scProtected)).equal("symbol");
+										this.should.have.property(scProtected);
 									});
 									it('should n have a property called "scPublic"', () => {
-										SubClass.should.have.property('scPublic');
+										this.should.have.property('scPublic');
 									});
 									it('should have a property called "scPublicStatic"', () => {
 										SubClass.should.have.property('scPublicStatic');
@@ -395,22 +406,9 @@ describe('Testing ES6-version Class.js...', () => {
 						}
 					}),
 					APITests: Public(function APITests() {
-						describe('Class Instance API', () => {
-							it('should expose "this.Delegate"', () => {
-								should(this).have.a.property("Delegate");
-								should(this.Delegate).be.an.instanceOf(Function);
-								var self = this;
-								(this.Delegate(() => { should(this).be.exactly(self); }))();
+						var self = this;
 
-							});
-							it('should expose "this.Sibling"', () => {
-								should(this).have.a.property("Sibling");
-								should(this.Sibling).be.an.instanceOf(Function);
-								var that = new (Object.getPrototypeOf(this.Self).constructor)(true);
-								var sibling = this.Sibling(that);
-								should(sibling).have.property("scPrivate");
-								should(sibling.scPrivate).be.exactly(this.scPrivate);
-							});
+						describe('Class Instance API', () => {
 						});
 					})
 				};

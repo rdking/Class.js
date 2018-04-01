@@ -73,6 +73,13 @@ var ClassModes = new Enum("Default", ["Default", "Abstract", "Final"]);
 var Box = (require("../lib/Box"))(Privilege, true);
 var { modifyBox, extend, extendIf } = (require("../lib/utils"))(Box, Privilege, true);
 
+/**
+ * Creates an equivalent constructor function for an ES6 class given a
+ * constructor function.
+ * @param {string} ctor - String contents of the constructor function of an
+ * ES6-style class. 
+ * @returns {string} - an ES6-style equivalent of the same function.
+ */
 function convertConstructor(ctor) {
 	var retval = ctor.replace(/^(?:function\s+)?(?:\w+)?\((.*)\)\s*(?:=>)?\s*{/, "constructor($1) {");
 
@@ -84,6 +91,12 @@ function convertConstructor(ctor) {
 	return retval
 }
 
+/**
+ * Creates an equivalent function definition for an ES6 class givn a function
+ * definition.
+ * @param {string} fn - String contents of a function.
+ * @param {string} name - Name of the re-declared function.
+ */
 function convertFunction(fn, name) {
 	var retval = fn.replace(/^(?:function\s+)?(?:(\w+)\s*)?\((.*)\)\s*(?:=>)?\s*{/, `${name}($2) {`);
 	
@@ -774,6 +787,16 @@ function createClassProxy(params) {
 				retval = Reflect.set(target, key, value, receiver);
 			}
 			return retval;
+		},
+		has(target, key) {
+			var retval;
+			if (Object.values(privateStaticNames).indexOf(key) >= 0) {
+				retval = Reflect.has(this.slots.privateStaticScope, key);
+			}
+			else {
+				retval = Reflect.has(target, key);
+			}
+			return retval;
 		}
 	};
 
@@ -848,6 +871,19 @@ function createInstanceProxy(params) {
 			}
 			else {
 				retval = Reflect.set(target, key, value, receiver);
+			}
+			return retval;
+		},
+		has(target, key) {
+			var retval;
+			if (Object.values(this.slots.privateNames).indexOf(key) >= 0) {
+				retval = Reflect.has(this.slots.privateScope, key);
+			}
+			else if (Object.values(this.slots.privateStaticNames).indexOf(key) >= 0) {
+				retval = Reflect.has(instance.constructor, key);
+			}
+			else {
+				retval = Reflect.has(target, key);
 			}
 			return retval;
 		}

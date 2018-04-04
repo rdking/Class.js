@@ -31,7 +31,7 @@
         "delegate",
         "property"
     ],
-    "dependencies": {
+    "devDependencies": {
         "j5g3.docma": "j5g3/docma",
         "j5g3.inference": "j5g3/inference",
         "j5g3.jsdoc-parser": "j5g3/jsdoc-parser",

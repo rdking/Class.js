@@ -347,6 +347,19 @@ function Class(pvtScope, protList, classMode, pubScope) {
 	}
 
 	with(classDefScope) with(privateNames) with(privateStaticNames) {
+		//Re-evaluate all functions in the private scope to ensure they can be accessed.
+		for (key in pvtScope) {
+			if (typeof(pvtScope[key]) == "function") {
+				var fn = pvtScope[key].toString();
+
+				if (/^\w+\s*\(((,\s*)?\w+)*\)\s*\{/.test(fn)) 
+					fn = `function ${fn}`;
+				else if (/^async \w+\s*\(((,\s*)?\w+)*\)\s*\{/.test(fn))
+					fn = `async function ${fn.substr(6)}`;
+
+				pvtScope[key] = eval(`(${fn})`);
+			}
+		}
 		//Ensures the private scope is fully initialized before construction
 		function initPrivateScope(instance) {
 			instance = createInstanceProxy({
@@ -779,7 +792,7 @@ function createClassProxy(params) {
 			return retval;
 		},
 		set(target, key, value, receiver) {
-			var retval;
+			var retval = true;
 			if (Object.values(privateStaticNames).indexOf(key) >= 0) {
 				this.slots.privateStaticScope[key] = value;
 			}
@@ -789,7 +802,7 @@ function createClassProxy(params) {
 			return retval;
 		},
 		has(target, key) {
-			var retval;
+			var retval = true;
 			if (Object.values(privateStaticNames).indexOf(key) >= 0) {
 				retval = Reflect.has(this.slots.privateStaticScope, key);
 			}
@@ -809,7 +822,7 @@ function createClassProxy(params) {
 		var member = pvtScope[key];
 		var mKey = (key in privateStaticNames) ? privateStaticNames[key] : key;
 
-		if (member.isStatic) {
+		if (member && member.isStatic) {
 			unboxMember(privateNames, privateStaticNames, retval,
 				handler.slots.privateStaticScope, mKey, member);
 		}
@@ -862,7 +875,7 @@ function createInstanceProxy(params) {
 			return false;
 		},
 		set(target, key, value, receiver) {
-			var retval;
+			var retval = true;
 			if (Object.values(this.slots.privateNames).indexOf(key) >= 0) {
 				this.slots.privateScope[key] = value;
 			}
@@ -875,7 +888,7 @@ function createInstanceProxy(params) {
 			return retval;
 		},
 		has(target, key) {
-			var retval;
+			var retval = true;
 			if (Object.values(this.slots.privateNames).indexOf(key) >= 0) {
 				retval = Reflect.has(this.slots.privateScope, key);
 			}

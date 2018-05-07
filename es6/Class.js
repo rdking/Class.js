@@ -245,7 +245,7 @@ function parseES5(name, definition) {
  * @param {*} pubScope - An ES6 class or constructor function.
  * @returns {function} the constructor for the new Class
  */
-function Class(pvtScope, protList, classMode, pubScope) {
+function Class(pvtScope, staticList, protList, classMode, pubScope) {
 	var privateNames = {};
 	var privateStaticNames = {};
 	var protectedNames = {};
@@ -256,13 +256,28 @@ function Class(pvtScope, protList, classMode, pubScope) {
 	var staticScope = {};
 
 	switch(arguments.length) {
-		case 1:
-		case 2:
+		case 1:	//ES5-style Class.js definition
+		case 2: //ES5 Class.js name string and definition
 			// jshint shadow: true
 			var { pvtScope, staticScope, protList, classMode,
 				pubScopeDef, baseClass, StaticConstructor } = parseES5.apply(null, arguments);
 			break;
-		case 3:
+		case 3: //ES6-style private scope, protected member list or classMode, & public class
+			pubScope = protList;
+			pubScopeDef = pubScope.toString();
+				
+			if (Array.isArray(staticList)) {
+				protList = staticList;
+				staticList = [];
+				classMode = ClassModes.Default;
+			}
+			else {
+				classMode = protList;
+				staticList = [];
+				protList = [];
+			}
+			break;
+		case 4: // privateScope, protected list, static scope or classMode, & public scope
 			pubScope = classMode;
 			pubScopeDef = pubScope.toString();
 				
@@ -271,10 +286,11 @@ function Class(pvtScope, protList, classMode, pubScope) {
 			}
 			else {
 				classMode = protList;
-				protList = [];
+				protList = staticList;
+				staticList = [];
 			}
 			break;
-		case 4:
+		case 5:
 			pubScopeDef = pubScope.toString();
 			protList = protList || [];
 			classMode = classMode || ClassModes.Default;
@@ -313,12 +329,27 @@ function Class(pvtScope, protList, classMode, pubScope) {
 		}
 	}
 	
-	/* Map the protected keys into another object. */
 	function getNameFn(bucket,key) {
 		return function getName() {
 			return bucket[key];
 		};
 	}
+	
+	/* Map the private static keys into another object. */
+	for (let i=0; i<staticList.length; ++i) {
+		let key = staticList[i];
+		if (key in privateNames) {
+			staticScope[key] = pvtScope[key];
+			Object.defineProperty(privateStaticNames, key, {
+				enumerable: true,
+				value: privateNames[key]
+			});
+			delete pvtScope[key];
+			delete privateNames[key];
+		}
+	}
+	
+	/* Map the protected keys into another object. */
 	for (let i=0; i<protList.length; ++i) {
 		let key = protList[i];
 		if (key in privateNames) {

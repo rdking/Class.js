@@ -34,7 +34,7 @@ console.log("ES6 Class loading...");
 		eval("(...args) => {};"); //If this throws, then no ES6.
 	} catch(e) {
 		throw("Silly rabbit! You need the ES5 version!");
-	};
+	}
 })();
 
 var ProtectedMembers = Symbol("protected");
@@ -88,7 +88,7 @@ function convertConstructor(ctor) {
 	}
 
 	retval = retval.replace(/(\W)this.Super(\W)/, "$1super$2");
-	return retval
+	return retval;
 }
 
 /**
@@ -105,7 +105,7 @@ function convertFunction(fn, name) {
 	}
 
 	retval = retval.replace(/(\W)this.Super(\W)/, "$1super$2");
-	return retval
+	return retval;
 }
 
 /**
@@ -180,6 +180,7 @@ function parseES5(name, definition) {
 
 	for (var i=0; i<keys.length; ++i) {
 		var key = keys[i];
+		var member;
 
 		switch(key) {
 			case "Mode":
@@ -202,12 +203,12 @@ function parseES5(name, definition) {
 				classParts.Constructor = definition.Constructor;
 				break;
 			case "StaticConstructor":
-				var member = definition.StaticConstructor;
+				member = definition.StaticConstructor;
 				retval.StaticConstructor = (member instanceof Box) ? member.value : member;
 				break;
 			default: 
 				if (definition[key] instanceof Box) {
-					var member = definition[key];
+					member = definition[key];
 					if (member.isPublic) {
 						if (member.isStatic) {
 							retval.staticScope[key] = member;
@@ -257,6 +258,7 @@ function Class(pvtScope, protList, classMode, pubScope) {
 	switch(arguments.length) {
 		case 1:
 		case 2:
+			// jshint shadow: true
 			var { pvtScope, staticScope, protList, classMode,
 				pubScopeDef, baseClass, StaticConstructor } = parseES5.apply(null, arguments);
 			break;
@@ -269,7 +271,7 @@ function Class(pvtScope, protList, classMode, pubScope) {
 			}
 			else {
 				classMode = protList;
-				protList = []
+				protList = [];
 			}
 			break;
 		case 4:
@@ -312,18 +314,23 @@ function Class(pvtScope, protList, classMode, pubScope) {
 	}
 	
 	/* Map the protected keys into another object. */
+	function getNameFn(bucket,key) {
+		return function getName() {
+			return bucket[key];
+		};
+	}
 	for (let i=0; i<protList.length; ++i) {
 		let key = protList[i];
 		if (key in privateNames) {
 			Object.defineProperty(protectedNames, key, {
 				enumerable: true,
-				get: function getName() { return privateNames[key]; }
+				get: getNameFn(privateNames, key)
 			});
 		}
 		else if (key in privateStaticNames) {
 			Object.defineProperty(protectedNames, key, {
 				enumerable: true,
-				get: function getName() { return privateStaticNames[key]; }
+				get: getNameFn(privateStaticNames, key)
 			});
 		}
 	}
@@ -348,7 +355,7 @@ function Class(pvtScope, protList, classMode, pubScope) {
 
 	with(classDefScope) with(privateNames) with(privateStaticNames) {
 		//Re-evaluate all functions in the private scope to ensure they can be accessed.
-		for (key in pvtScope) {
+		for (var key in pvtScope) {
 			if (typeof(pvtScope[key]) == "function") {
 				var fn = pvtScope[key].toString();
 
@@ -360,8 +367,9 @@ function Class(pvtScope, protList, classMode, pubScope) {
 				pvtScope[key] = eval(`(${fn})`);
 			}
 		}
+
 		//Ensures the private scope is fully initialized before construction
-		function initPrivateScope(instance) {
+		var initPrivateScope = function initPrivateScope(instance) {
 			instance = createInstanceProxy({
 				instance,
 				pvtScope,
@@ -380,7 +388,7 @@ function Class(pvtScope, protList, classMode, pubScope) {
 
 			instance[ProtectedMembers] = protectedNames;
 			return instance;
-		}
+		};
 		
 		eval(`classDefScope[name] = ${defString.toString()};`);
 
@@ -397,7 +405,7 @@ function Class(pvtScope, protList, classMode, pubScope) {
 		classDefScope[name] = retval;
 		return retval;
 	}
-};
+}
 
 /**
  * Private - An access modifier function. Causes val to be encapsulated as
@@ -695,10 +703,11 @@ Object.defineProperties(Class, {
 					enumerable: true,
 					writable: true,
 					value: function setPrototypeOf(obj, proto) {
+						//jshint proto: true
 						obj.__proto__ = proto;
 						return obj;
 					}
-				})
+				});
 			}
 	
 			if (!Object.hasOwnProperty("getPrototypeOf")) {
@@ -706,9 +715,10 @@ Object.defineProperties(Class, {
 					enumerable: true,
 					writable: true,
 					value: function getPrototypeOf(obj) {
+						//jshint proto: true
 						return obj.__proto__;
 					}
-				})
+				});
 			}
 		}
 	}
@@ -722,7 +732,7 @@ function unboxMember(privateNames, privateStaticNames, scope, dest, key, member)
 			enumerable: true,
 		};
 
-		var _class = (scope instanceof Function)? scope : scope.__proto__.constructor;
+		var _class = (scope instanceof Function)? scope : Object.getPrototypeOf(scope).constructor;
 		var classScope = {
 			[_class.name]: _class
 		};
@@ -819,8 +829,8 @@ function createClassProxy(params) {
 	var keys = Object.keys(pvtScope);
 	for (let i=0; i<keys.length; ++i) {
 		let key = keys[i];
-		var member = pvtScope[key];
-		var mKey = (key in privateStaticNames) ? privateStaticNames[key] : key;
+		let member = pvtScope[key];
+		let mKey = (key in privateStaticNames) ? privateStaticNames[key] : key;
 
 		if (member && member.isStatic) {
 			unboxMember(privateNames, privateStaticNames, retval,
@@ -831,8 +841,8 @@ function createClassProxy(params) {
 	keys = Object.keys(staticScope);
 	for (let i=0; i<keys.length; ++i) {
 		let key = keys[i];
-		var member = staticScope[key];
-		var mKey = (key in privateStaticNames) ? privateStaticNames[key] : key;
+		let member = staticScope[key];
+		let mKey = (key in privateStaticNames) ? privateStaticNames[key] : key;
 
 		unboxMember(privateNames, privateStaticNames, retval, retval, mKey, member);
 	}
@@ -912,7 +922,7 @@ function createInstanceProxy(params) {
 	}
 	
 	return new Proxy(instance, handler);
-};
+}
 
 if (typeof(module) === "object") {
 	//Use require semantics

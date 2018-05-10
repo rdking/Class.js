@@ -384,57 +384,75 @@ function Class(pvtScope, staticList, protList, classMode, pubScope) {
 		throw TypeError('This class definition makes no sense! Give me a "class" or a "function" definition.');
 	}
 
-	with(classDefScope) with(privateNames) with(privateStaticNames) {
-		//Re-evaluate all functions in the private scope to ensure they can be accessed.
-		for (var key in pvtScope) {
-			if (typeof(pvtScope[key]) == "function") {
-				var fn = pvtScope[key].toString();
+	with(privateStaticNames) {
+		with(staticScope) {	// Static methods shoudn't be able to access non-static stuff.
+			//Re-evaluate all functions in the private-static scope to ensure they can be accessed.
+			for (var key in staticScope) {
+				if (typeof(staticScope[key]) == "function") {
+					var fn = staticScope[key].toString();
 
-				if (/^\w+\s*\(((,\s*)?\w+)*\)\s*\{/.test(fn)) 
-					fn = `function ${fn}`;
-				else if (/^async \w+\s*\(((,\s*)?\w+)*\)\s*\{/.test(fn))
-					fn = `async function ${fn.substr(6)}`;
+					if (/^\w+\s*\(((,\s*)?\w+)*\)\s*\{/.test(fn)) 
+						fn = `function ${fn}`;
+					else if (/^async \w+\s*\(((,\s*)?\w+)*\)\s*\{/.test(fn))
+						fn = `async function ${fn.substr(6)}`;
 
-				pvtScope[key] = eval(`(${fn})`);
+					staticScope[key] = eval(`(${fn})`);
+				}
 			}
 		}
 
-		//Ensures the private scope is fully initialized before construction
-		var initPrivateScope = function initPrivateScope(instance) {
-			instance = createInstanceProxy({
-				instance,
+		with(classDefScope) with(privateNames) {
+			//Re-evaluate all functions in the private scope to ensure they can be accessed.
+			for (var key in pvtScope) {
+				if (typeof(pvtScope[key]) == "function") {
+					var fn = pvtScope[key].toString();
+
+					if (/^\w+\s*\(((,\s*)?\w+)*\)\s*\{/.test(fn)) 
+						fn = `function ${fn}`;
+					else if (/^async \w+\s*\(((,\s*)?\w+)*\)\s*\{/.test(fn))
+						fn = `async function ${fn.substr(6)}`;
+
+					pvtScope[key] = eval(`(${fn})`);	
+				}	
+			}	
+
+			//Ensures the private scope is fully initialized before construction
+			var initPrivateScope = function initPrivateScope(instance) {
+				instance = createInstanceProxy({
+					instance,
+					pvtScope,
+					privateNames,
+					privateStaticNames
+				});
+
+				if (ProtectedMembers in instance) {
+					var protNames = instance[ProtectedMembers];
+					if (Object.getPrototypeOf(privateNames) !== protNames) {
+						Object.setPrototypeOf(privateNames, protNames);
+						Object.setPrototypeOf(protectedNames, protNames);
+					}
+					delete instance[ProtectedMembers];
+				}
+
+				instance[ProtectedMembers] = protectedNames;
+				return instance;
+			};
+			
+			eval(`classDefScope[name] = ${defString.toString()};`);
+
+			retval = createClassProxy({
+				_class: classDefScope[name],
+				classMode,
 				pvtScope,
+				staticScope,
 				privateNames,
-				privateStaticNames
+				privateStaticNames,
+				StaticConstructor
 			});
 
-			if (ProtectedMembers in instance) {
-				var protNames = instance[ProtectedMembers];
-				if (Object.getPrototypeOf(privateNames) !== protNames) {
-					Object.setPrototypeOf(privateNames, protNames);
-					Object.setPrototypeOf(protectedNames, protNames);
-				}
-				delete instance[ProtectedMembers];
-			}
-
-			instance[ProtectedMembers] = protectedNames;
-			return instance;
-		};
-		
-		eval(`classDefScope[name] = ${defString.toString()};`);
-
-		retval = createClassProxy({
-			_class: classDefScope[name],
-			classMode,
-			pvtScope,
-			staticScope,
-			privateNames,
-			privateStaticNames,
-			StaticConstructor
-		});
-
-		classDefScope[name] = retval;
-		return retval;
+			classDefScope[name] = retval;
+			return retval;
+		}
 	}
 }
 

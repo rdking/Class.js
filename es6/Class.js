@@ -108,6 +108,30 @@ function convertFunction(fn, name) {
 	return retval;
 }
 
+function *redefineFunctions(obj) {
+	for (var field in obj) {
+		var desc = Object.getOwnPropertyDescriptor(obj, field);
+		var newDesc = Object.assign({}, desc);
+
+		var getFnString = (func) => {
+			var retval = func.toString().replace(/^function\s[gs]et\s/, "function ");
+		
+			if (/^\w+\s*\(((,\s*)?\w+)*\)\s*\{/.test(retval)) 
+				retval = `function ${retval}`;
+			else if (/^async \w+\s*\(((,\s*)?\w+)*\)\s*\{/.test(retval))
+				retval = `async function ${retval.substr(6)}`;
+
+			return retval;
+		}
+
+		for (var prop of ["value", "get", "set"]) {
+			if ((prop in desc) && (typeof(desc[prop]) == "function")) {
+				newDesc[prop] = yield getFnString(desc[prop]);
+			}
+		}
+		Object.defineProperty(obj, field, newDesc);
+	}
+}
 /**
  * Converts an ES5-style class definition into the ES6-style parameters needed
  * by this version of Class.js.
@@ -320,8 +344,8 @@ function Class(pvtScope, staticList, protList, classMode, pubScope) {
 	for (let i=0; i<keys.length; ++i) {
 		let key = keys[i];
 
-		let member = pvtScope[key];
-		if ((member instanceof Box) && member.isStatic) {
+		let member = Object.getOwnPropertyDescriptor(pvtScope, key);
+		if ((member.value instanceof Box) && member.value.isStatic) {
 			privateStaticNames[key] = Symbol(key);
 		}
 		else {
@@ -339,7 +363,7 @@ function Class(pvtScope, staticList, protList, classMode, pubScope) {
 	for (let i=0; i<staticList.length; ++i) {
 		let key = staticList[i];
 		if (key in privateNames) {
-			staticScope[key] = pvtScope[key];
+			Object.defineProperty(staticScope, key, Object.getOwnPropertyDescriptor(pvtScope, key));
 			Object.defineProperty(privateStaticNames, key, {
 				enumerable: true,
 				value: privateNames[key]
@@ -387,34 +411,22 @@ function Class(pvtScope, staticList, protList, classMode, pubScope) {
 	with(privateStaticNames) {
 		with(staticScope) {	// Static methods shoudn't be able to access non-static stuff.
 			//Re-evaluate all functions in the private-static scope to ensure they can be accessed.
-			for (var key in staticScope) {
-				if (typeof(staticScope[key]) == "function") {
-					var fn = staticScope[key].toString();
+			let iterator = redefineFunctions(staticScope);
+			let iter = iterator.next();
 
-					if (/^\w+\s*\(((,\s*)?\w+)*\)\s*\{/.test(fn)) 
-						fn = `function ${fn}`;
-					else if (/^async \w+\s*\(((,\s*)?\w+)*\)\s*\{/.test(fn))
-						fn = `async function ${fn.substr(6)}`;
-
-					staticScope[key] = eval(`(${fn})`);
-				}
+			while (!iter.done) {
+				iter = iterator.next(eval(`(${iter.value})`));
 			}
 		}
 
 		with(classDefScope) with(privateNames) {
 			//Re-evaluate all functions in the private scope to ensure they can be accessed.
-			for (var key in pvtScope) {
-				if (typeof(pvtScope[key]) == "function") {
-					var fn = pvtScope[key].toString();
+			let iterator = redefineFunctions(pvtScope);
+			let iter = iterator.next();
 
-					if (/^\w+\s*\(((,\s*)?\w+)*\)\s*\{/.test(fn)) 
-						fn = `function ${fn}`;
-					else if (/^async \w+\s*\(((,\s*)?\w+)*\)\s*\{/.test(fn))
-						fn = `async function ${fn.substr(6)}`;
-
-					pvtScope[key] = eval(`(${fn})`);	
-				}	
-			}	
+			while (!iter.done) {
+				iter = iterator.next(eval(`(${iter.value})`));
+			}
 
 			//Ensures the private scope is fully initialized before construction
 			var initPrivateScope = function initPrivateScope(instance) {
@@ -776,10 +788,12 @@ Object.defineProperties(Class, {
 Class.InitializeScope(Class);
 
 function unboxMember(privateNames, privateStaticNames, scope, dest, key, member) {
-	if (member instanceof Box) {
+	if (member.value instanceof Box) {
 		var def = {
 			enumerable: true,
 		};
+
+		member = member.value;
 
 		var _class = (scope instanceof Function)? scope : Object.getPrototypeOf(scope).constructor;
 		var classScope = {
@@ -809,7 +823,7 @@ function unboxMember(privateNames, privateStaticNames, scope, dest, key, member)
 		Object.defineProperty(dest, key, def);
 	}
 	else {
-		dest[key] = member;
+		Object.defineProperty(dest, key, member);
 	}
 }
 
@@ -878,7 +892,7 @@ function createClassProxy(params) {
 	var keys = Object.keys(pvtScope);
 	for (let i=0; i<keys.length; ++i) {
 		let key = keys[i];
-		let member = pvtScope[key];
+		let member = Object.getOwnPropertyDescriptor(pvtScope, key);
 		let mKey = (key in privateStaticNames) ? privateStaticNames[key] : key;
 
 		if (member && member.isStatic) {
@@ -890,7 +904,7 @@ function createClassProxy(params) {
 	keys = Object.keys(staticScope);
 	for (let i=0; i<keys.length; ++i) {
 		let key = keys[i];
-		let member = staticScope[key];
+		let member = Object.getOwnPropertyDescriptor(staticScope, key);
 		let mKey = (key in privateStaticNames) ? privateStaticNames[key] : key;
 
 		unboxMember(privateNames, privateStaticNames, retval, retval, mKey, member);
@@ -964,9 +978,10 @@ function createInstanceProxy(params) {
 	var keys = Object.keys(pvtScope);
 	for (let i=0; i<keys.length; ++i) {
 		let key = keys[i];
+		let member = Object.getOwnPropertyDescriptor(pvtScope, key);
 		if ((key in pvtScope) && (key in privateNames)) {
 			unboxMember(privateNames, privateStaticNames, instance,
-				handler.slots.privateScope, privateNames[key], pvtScope[key]);
+				handler.slots.privateScope, privateNames[key], member);
 		}
 	}
 	

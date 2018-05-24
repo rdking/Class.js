@@ -1,67 +1,67 @@
 {
-    "name": "java-class",
-    "version": "3.0.2",
-    "description": "Class.js is a Javascript library designed to allow easy, non-obtrusive creation of Java-like classes without requiring a cross-compiler, and without otherwise interfering with the capabilities of Javascript.",
-    "scripts": {
-        "test": "for file in $(ls -1 tests/*.spec.js); do mocha $file; done;"
+  "name": "java-class",
+  "version": "3.0.3",
+  "description": "Class.js is a Javascript library designed to allow easy, non-obtrusive creation of Java-like classes without requiring a cross-compiler, and without otherwise interfering with the capabilities of Javascript.",
+  "scripts": {
+    "test": "for file in $(ls -1 tests/*.spec.js); do mocha $file; done;"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://www.github.com/rdking/Class.js.git"
+  },
+  "keywords": [
+    "object-oriented",
+    "oop",
+    "inheritance",
+    "class.js",
+    "class-js",
+    "classjs",
+    "mixin",
+    "prototype",
+    "superclass",
+    "super",
+    "subclass",
+    "class",
+    "private",
+    "protected",
+    "public",
+    "static",
+    "abstract",
+    "final",
+    "delegate",
+    "property"
+  ],
+  "devDependencies": {
+    "j5g3.docma": "j5g3/docma",
+    "j5g3.inference": "j5g3/inference",
+    "j5g3.jsdoc-parser": "j5g3/jsdoc-parser",
+    "mocha": "^5.0.0",
+    "should": "^13.2.1"
+  },
+  "author": "Ranando D. King <kingmph@gmail.com> (https://thekingsnotice.blogspot.com)",
+  "license": "Apache-2.0",
+  "eslintConfig": {
+    "parserOptions": {
+      "ecmaVersion": 5
     },
-    "repository": {
-        "type": "git",
-        "url": "https://www.github.com/rdking/Class.js.git"
+    "env": {
+      "node": true,
+      "browser": true
     },
-    "keywords": [
-        "object-oriented",
-        "oop",
-        "inheritance",
-        "class.js",
-        "class-js",
-        "classjs",
-        "mixin",
-        "prototype",
-        "superclass",
-        "super",
-        "subclass",
-        "class",
-        "private",
-        "protected",
-        "public",
-        "static",
-        "abstract",
-        "final",
-        "delegate",
-        "property"
-    ],
-    "devDependencies": {
-        "j5g3.docma": "j5g3/docma",
-        "j5g3.inference": "j5g3/inference",
-        "j5g3.jsdoc-parser": "j5g3/jsdoc-parser",
-        "mocha": "^5.0.0",
-        "should": "^13.2.1"
-    },
-    "author": "Ranando D. King <kingmph@gmail.com> (https://thekingsnotice.blogspot.com)",
-    "license": "Apache-2.0",
-    "eslintConfig": {
-        "parserOptions": {
-            "ecmaVersion": 5
-        },
-        "env": {
-            "node": true,
-            "browser": true
-        },
-        "extends": "eslint:recommended",
-        "rules": {
-            "no-console": "off",
-            "no-prototype-builtins": "off",
-            "no-template-curly-in-string": "error",
-            "no-unsafe-negation": "error",
-            "valid-jsdoc": "warn",
-            "array-callback-return": "error",
-            "consistent-return": "error",
-            "curly": "off",
-            "no-mixed-spaces-and-tabs": [
-                "error",
-                "smart-tabs"
-            ]
-        }
+    "extends": "eslint:recommended",
+    "rules": {
+      "no-console": "off",
+      "no-prototype-builtins": "off",
+      "no-template-curly-in-string": "error",
+      "no-unsafe-negation": "error",
+      "valid-jsdoc": "warn",
+      "array-callback-return": "error",
+      "consistent-return": "error",
+      "curly": "off",
+      "no-mixed-spaces-and-tabs": [
+        "error",
+        "smart-tabs"
+      ]
     }
+  }
 }

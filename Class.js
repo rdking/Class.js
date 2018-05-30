@@ -219,6 +219,23 @@ function isValidType(type, value) {
 }
 
 /**
+ * Constructor for a simple type used to hold changing construction metadata.
+ * 
+ * @param {Object} owner - Public instance of the Class being constucted.
+ * @param {Object} scopes - Object containing all the member scope objects.
+ */
+function ClassArgs(owner, scopes) {
+	if (!(this instanceof ClassArgs)) {
+		throw new ClassError("ClassArgs is a constructor. You must use 'new'.");
+	}
+	this.owner = owner;
+	this.childDomain = {};
+	this.scopes = scopes;
+	this.topDomain = owner;
+	this.native = null;
+}
+
+/**
  * Creates the private, protected, and public instance domains.
  *
  * @param {Object} owner - the "this" of the current Class being constructed.
@@ -227,8 +244,12 @@ function isValidType(type, value) {
  * @param {Object} topDomain - the "this" of the top-level descendant that
  * started this construction chain.
  */
-function initialize(owner, childDomain, topDomain, scopes) {
+function initialize(classArgs) {
 	//First, create a private domain and populate it..
+	var owner = classArgs.owner;
+	var childDomain = classArgs.childDomain;
+	var topDomain = classArgs.topDomain;
+	var scopes = classArgs.scopes;
 	var privateDomain = {};
 
 	//Put a flag on it so it can be identified as a private domain object.
@@ -241,19 +262,19 @@ function initialize(owner, childDomain, topDomain, scopes) {
 		},
 		"Super": {
 			value: (function() {
-				var retval = function() {
+				var retval = (function Super() {
 					var base = MetaData.get(Object.getPrototypeOf(owner).constructor).definition.Extends;
-					var args = Array.prototype.slice.call(arguments);
+					var isNative = isNativeFunction(base);
+					var args = Array.prototype.slice.call(arguments, ~~isNative);
+					//This is ugly, but it preserves the objects that may have been passed in.
+					var parent = eval('new base(' + ((args.length) ? 'args[' + Object.keys(args).join('], args[') + ']' : '') + ')');
 
-					if (isNativeFunction(base)) {
-						var parent = eval("new " + base.name + "('" + args.join("','") + "`)");
-						//TODO: somehow send this upstream to be used by the overconstructor...
+					if (isNative) {
+						//Send this upstream to be used by the overconstructor...
+						classArgs.native = parent;
+						Object.setPrototypeOf(Object.getPrototypeOf(classArgs.owner), base.prototype);
 					}
-					else {
-						var parent = Object.create(base.prototype);
-						base.apply(parent, args);
-					}
-				};
+				}).bind(owner, classArgs);
 
 				Object.setPrototypeOf(retval, scopes[SUPERPROTO]);
 				return retval;
@@ -294,33 +315,36 @@ function initialize(owner, childDomain, topDomain, scopes) {
  * constructor provided in the Class definition. This constructor stages the
  * Class instance and calls the constructor in the Class definition.
  *
- * @param {Object} scopes - Object containing all the member scope objects.
- * @param {Object=} childDomain - the private scope instance from a descendant Class.
- * @param {Object=} self - the public instance reference being constructed.
+ * @param {Object} classArgs - Object containing initialization chain information.
+ * @param {Object} classArgs.scopes - Object containing all the member scope objects.
+ * @param {Object=} classArgs.childDomain - the private scope instance from a descendant Class.
+ * @param {Object=} classArgs.owner - the public instance reference being constructed.
  * @returns {Object} - The fully constructed instance of the desired class.
  */
-function typeConstructor(scopes, childDomain, self) {
+function typeConstructor(classArgs) {
+	var scopes = classArgs.scopes;
+	var childDomain = classArgs.childDomain;
+	var self = classArgs.topDomain;
 	var metaData = MetaData.get(Object.getPrototypeOf(this).constructor);
 	var classConstructor = metaData.Constructor;
-	var argc = arguments.length - 3;
+	var argc = arguments.length - 1;
 
 	if ((metaData.definition.Mode === ClassModes.Abstract) && !childDomain)
 		throw new SyntaxError("Cannot construct an Abstract Class!");
 
 	if (!classConstructor || classConstructor.isPublic ||
 		(childDomain && classConstructor.isProtected)) {
-		var instance = initialize(this, childDomain, self, scopes);
+		var args = Array.prototype.slice.call(arguments, 1);
+		var instance = initialize(classArgs);
 
 		if (metaData.Mixins)
 			BlendMixins(definition.Mixins, instance);
 
 		Object.seal(instance);
 
-		var args = Array.prototype.slice.call(arguments, 3);
-
 		if (classConstructor) {
 			if (!(childDomain && (childDomain.__isInheritedDomain || childDomain.__isDescendant))) {
-				if (this.InheritsFrom) {
+				if (metaData.definition.Extends) {
 					var hasSuperFirst = /function\s+\w+\s*\((\w+\s*(,\s*\w+)*)?\)\s*{\s*this\s*\.\s*Super\s*\(/;
 					var hasSuper = /\s*this\s*\.\s*Super\s*\(/;
 					var constructorString = classConstructor.value.toString();
@@ -331,7 +355,7 @@ function typeConstructor(scopes, childDomain, self) {
 						if (instance.Super.length)
 							throw new Error("No default constructor available in " + name + "\'s super class!");
 
-						instance.Super();
+						Function.prototype.apply.call(instance.Super, instance, args);
 					}
 					else {
 						if (!hasSuperFirst.test(constructorString))
@@ -341,8 +365,8 @@ function typeConstructor(scopes, childDomain, self) {
 				classConstructor.value.apply(instance, args);
 			}
 		}
-		else if (this.InheritsFrom) {
-			instance.Super();
+		else if (metaData.definition.Extends) {
+			Function.prototype.apply.call(instance.Super, instance, args);
 		}
 	}
 	else if (classConstructor)
@@ -364,16 +388,33 @@ function generateTypeConstructor(name, scopes) {
 
 	var retval = eval("(function " + name + "() {\n" +
 		 "	var callErrorString = \"This is a class instance generating function. \" + \n" +
-		 "						  \"You must use 'new \" + (name || \"<ClassName>\") + \n" +
+		 "						  \"You must use 'new \" + (" + name + " || \"<ClassName>\") + \n" +
 		 "						  \"(...)' to use this function.\"; \n" +
-		 "	if (!(this instanceof retval)) {\n" +
+		 "	if (!(this instanceof " + name + ")) {\n" +
 		 "		throw new ClassError(callErrorString);\n" +
 		 "	}\n" +
 		 "	\n" +
 		 "	var args = Array.prototype.slice.call(arguments);\n" +
-		 "	args.unshift(scopes, null, null);\n" +
+		 "	var arg0 = args[0];\n" +
+		 "	var hasClassArgs = arg0 instanceof ClassArgs;\n" +
+		 "	var classArgs = new ClassArgs(this, scopes);\n" +
+		 "	if (hasClassArgs) {\n" +
+		 "		Object.setPrototypeOf(classArgs, arg0);\n" +
+		 "		classArgs.topDomain = arg0.topDomain;\n" +
+		 "		args.shift();\n" +
+		 "	}\n" +
+		 "	args.unshift(classArgs);\n" +
 		 "	\n" +
-		 "	return typeConstructor.apply(this, args);\n" +
+		 "	var retval = typeConstructor.apply(this, args);\n" +
+		 "	if (hasClassArgs) {\n" +
+		 "		arg0.native = classArgs.native;\n" +
+		 "	}\n" +
+		 "	else if (classArgs.native) {\n" +
+		 "		retval = classArgs.native;\n" +
+		 "		Object.setPrototypeOf(retval, this);\n" +
+		 "	}\n" +
+		 "	\n" +
+		 "	return retval;\n" +
 		 "});");
 
 	return retval;
@@ -774,8 +815,8 @@ function generateMetaData(This, name, definition, scopes) {
 			value: (function getInterface() {
 				var intDef = {};
 
-				if (This.InheritsFrom)
-					intDef.Extends = [ This.InheritsFrom[METADATA].interface ];
+				if (definition.Extends && !isNativeFunction(definition.Extends))
+					intDef.Extends = [ MetaData.get(definition.Extends).interface ];
 
 				if (definition.Implements && Array.isArray(definition.Implements)) {
 					if (!Array.isArray(intDef.Extends))
@@ -907,8 +948,8 @@ function inherit(This, scopes) {
 	var mixinList = definition.Mixins || [];
 
 	//First, handle Extends...
-	var eMetadata;
-	if (extended && (eMetadata = MetaData.get(extended)).isClass) {
+	var eMetadata = MetaData.get(extended);
+	if (eMetadata && eMetadata.isClass) {
 		var extendedScope = eMetadata.scopes;
 		Object.setPrototypeOf(scopes[PROTECTEDSTATICSCOPE], extendedScope[PROTECTEDSTATICSCOPE]);
 		Object.setPrototypeOf(scopes[PROTECTEDSCOPE], extendedScope[PROTECTEDSCOPE]);

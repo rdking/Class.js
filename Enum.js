@@ -161,6 +161,14 @@ var Enum = function Enum(defValName, params) {
                 return this._value.toString() + " (" + this.name +")";
             }
         },
+        "valueOf": {
+            enumerable: true,
+            configurable: false,
+            writable: false,
+            value: function valueOf() {
+                return this._value;
+            }
+        },
         "toJSON": {
             enumerable: false,
             configurable: false,

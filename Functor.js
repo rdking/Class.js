@@ -21,7 +21,7 @@ var Functor = (function() {
     var $$ = function Functor(obj, method, unsealed) {
         var isFixed = false;
         var retval = function functorCall() {
-            return method.apply(obj, arguments);
+            return method.apply(obj || this, arguments);
         };
 
         Object.defineProperties(retval, {

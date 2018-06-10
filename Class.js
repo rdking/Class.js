@@ -34,14 +34,14 @@ var hasES6 = (function() {
 	generated.
 */
 if (hasES6) {
-	var METADATA = Symbol(),
-		PRIVATESCOPE = Symbol(),
-		PROTECTEDSCOPE = Symbol(),
-		PROTECTEDSTATICSCOPE = Symbol(),
-		PUBLICSCOPE = Symbol(),
-		PUBLICSTATICSCOPE = Symbol(),
-		STATICSCOPE = Symbol(),
-		SUPERPROTO = Symbol();
+	var METADATA = Symbol("METADATA"),
+		PRIVATESCOPE = Symbol("PRIVATESCOPE"),
+		PROTECTEDSCOPE = Symbol("PROTECTEDSCOPE"),
+		PROTECTEDSTATICSCOPE = Symbol("PROTECTEDSTATICSCOPE"),
+		PUBLICSCOPE = Symbol("PUBLICSCOPE"),
+		PUBLICSTATICSCOPE = Symbol("PUBLICSTATICSCOPE"),
+		STATICSCOPE = Symbol("STATICSCOPE"),
+		SUPERPROTO = Symbol("SUPERPROTO");
 }
 else {
 	var METADATA = "__$METADATA$__",
@@ -221,13 +221,15 @@ function isValidType(type, value) {
 /**
  * Constructor for a simple type used to hold changing construction metadata.
  * 
+ * @param {Object} name - User-given name for the class.
  * @param {Object} owner - Public instance of the Class being constucted.
  * @param {Object} scopes - Object containing all the member scope objects.
  */
-function ClassArgs(owner, scopes) {
+function ClassArgs(name, owner, scopes) {
 	if (!(this instanceof ClassArgs)) {
 		throw new ClassError("ClassArgs is a constructor. You must use 'new'.");
 	}
+	this.className = name;
 	this.owner = owner;
 	this.childDomain = {};
 	this.scopes = scopes;
@@ -258,6 +260,7 @@ function initialize(classArgs) {
 			value: true
 		},
 		"Self": {
+			configurable: true,
 			value: owner
 		},
 		"Super": {
@@ -305,8 +308,6 @@ function initialize(classArgs) {
 		childDomain.__proto__ = protectedDomain;
 	}
 
-	Instances.set(owner, privateDomain);
-
 	return privateDomain;
 }
 
@@ -322,6 +323,7 @@ function initialize(classArgs) {
  * @returns {Object} - The fully constructed instance of the desired class.
  */
 function typeConstructor(classArgs) {
+	var name = classArgs.className;
 	var scopes = classArgs.scopes;
 	var childDomain = classArgs.childDomain;
 	var self = classArgs.topDomain;
@@ -339,9 +341,7 @@ function typeConstructor(classArgs) {
 
 		if (metaData.Mixins)
 			BlendMixins(definition.Mixins, instance);
-
-		Object.seal(instance);
-
+			
 		if (classConstructor) {
 			if (!(childDomain && (childDomain.__isInheritedDomain || childDomain.__isDescendant))) {
 				if (metaData.definition.Extends) {
@@ -372,6 +372,14 @@ function typeConstructor(classArgs) {
 	else if (classConstructor)
 		throw new Error("Constructor '" + name + "' is not accessible!");
 
+	//Fix Self and make it const.
+	var def = Object.getOwnPropertyDescriptor(instance, "Self");
+	delete def.configurable;
+	def.value = classArgs.native || this;
+	Object.defineProperty(instance, "Self", def);
+	Instances.set(instance.Self, instance);
+	Object.seal(instance);
+
 	return this;
 }
 
@@ -388,7 +396,7 @@ function generateTypeConstructor(name, scopes) {
 
 	var retval = eval("(function " + name + "() {\n" +
 		 "	var callErrorString = \"This is a class instance generating function. \" + \n" +
-		 "						  \"You must use 'new \" + (" + name + " || \"<ClassName>\") + \n" +
+		 "						  \"You must use 'new " + (name || "<ClassName>") + "\" + \n" +
 		 "						  \"(...)' to use this function.\"; \n" +
 		 "	if (!(this instanceof " + name + ")) {\n" +
 		 "		throw new ClassError(callErrorString);\n" +
@@ -397,7 +405,7 @@ function generateTypeConstructor(name, scopes) {
 		 "	var args = Array.prototype.slice.call(arguments);\n" +
 		 "	var arg0 = args[0];\n" +
 		 "	var hasClassArgs = arg0 instanceof ClassArgs;\n" +
-		 "	var classArgs = new ClassArgs(this, scopes);\n" +
+		 "	var classArgs = new ClassArgs(name, this, scopes);\n" +
 		 "	if (hasClassArgs) {\n" +
 		 "		Object.setPrototypeOf(classArgs, arg0);\n" +
 		 "		classArgs.topDomain = arg0.topDomain;\n" +
@@ -561,10 +569,10 @@ function createLinkBox(key) {
 		privilege: Privilege.Link,
 		value: {
 			get: new Functor(null, function getProperty() {
-				return (this && (this !== global)) ? this[key] : undefined;
+				return (this && (this !== global)) ? Instances.get(this)[key] : undefined;
 			}),
 			set: new Functor(null, function setProperty(value) {
-				this && (this !== global) && (this[key] = value);
+				this && (this !== global) && (Instances.get(this)[key] = value);
 			})
 		}
 	});
@@ -626,15 +634,14 @@ function unpackBox(box, target, context) {
 		enumerable: true
 	};
 
-	function scopeIt(_$_FN_$_) {
-		var _$_retval_$_;
-		var globalEval = eval;
+	function scopeIt(_fn) {
+		var _rval;
 
 		with (context) {
-			_$_retval_$_ = globalEval('(' + _$_FN_$_.toString() + ')');
+			_rval = eval('(' + _fn.toString() + ')');
 		}
 
-		return _$_retval_$_;
+		return _rval;
 	}
 
 	//If this Box is a property, we need to build it
@@ -751,9 +758,6 @@ function populateScopes(scopes, members) {
 		}
 	}
 
-	Object.defineProperty(scopes[STATICSCOPE], "Self", {
-
-	})
 }
 
 /**
@@ -851,6 +855,7 @@ function generateMetaData(This, name, definition, scopes) {
 
 	MetaData.set(This, metadata);
 	Object.defineProperty(This.prototype, "isClassInstance", { value: true });
+	Object.defineProperty(scopes[STATICSCOPE], "Self", { value: This });
 }
 
 /**
@@ -859,15 +864,17 @@ function generateMetaData(This, name, definition, scopes) {
  * @returns {Object} the new scopes container.
  */
 function createScopesContainer() {
-	return {
-		[STATICSCOPE]: {},
-		[PRIVATESCOPE]: {},
-		[PROTECTEDSCOPE]: {},
-		[PROTECTEDSTATICSCOPE]: {},
-		[PUBLICSCOPE]: {},
-		[PUBLICSTATICSCOPE]: {},
-		[SUPERPROTO]: null
-	};
+	var retval = {};
+
+	retval[STATICSCOPE] = {};
+	retval[PRIVATESCOPE] = {};
+	retval[PROTECTEDSCOPE] = {};
+	retval[PROTECTEDSTATICSCOPE] = {};
+	retval[PUBLICSCOPE] = {};
+	retval[PUBLICSTATICSCOPE] = {};
+	retval[SUPERPROTO] = null;
+
+	return retval;
 }
 
 /**
@@ -882,12 +889,11 @@ function createSuperProto(base, baseScopes) {
 		var retval = [];
 		
 		while (obj && (typeof(obj) == "object") && (obj !== Object.prototype)) {
-			var descriptors = Object.getOwnPropertyDescriptors(obj);
-			var descKeys = Object.keys(descriptors);
+			var descKeys = Object.keys(obj).concat(((hasES6)?Object.getOwnPropertySymbols(obj):[]));
 
 			for (var i=0; i<descKeys.length; ++i) {
 				var key = descKeys[i];
-				var descriptor = descriptors[key];
+				var descriptor = Object.getOwnPropertyDescriptor(obj, key);
 
 				if ((descriptor.enumerable) &&
 					(!("value" in descriptor) ||

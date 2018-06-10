@@ -39,6 +39,7 @@ console.log("ES6 Class loading...");
 
 var ProtectedMembers = Symbol("protected");
 var Instance = Symbol("instance");
+var Inheritance = Symbol("Inheritance");
 
 /**
  * Enum - Provides the ability to use syntax-checked enumeration values.
@@ -87,7 +88,7 @@ function convertConstructor(ctor) {
 		throw TypeError("The constructor needs to at least be a function!");
 	}
 
-	retval = retval.replace(/(\W)this.Super(\W)/, "$1super$2");
+	retval = retval.replace(/(\W)super(\W)/, "$1this.Super$2");
 	return retval;
 }
 
@@ -104,7 +105,7 @@ function convertFunction(fn, name) {
 		throw TypeError("The parameter needs to at least be a function!");
 	}
 
-	retval = retval.replace(/(\W)this.Super(\W)/, "$1super$2");
+	retval = retval.replace(/(\W)super(\W)/, "$1this.Super$2");
 	return retval;
 }
 
@@ -263,6 +264,8 @@ function parseES5(name, definition) {
  * Generates an ES6 class with private and protected scopes.
  * @param {Object} pvtScope - Contains all private/protected members and their 
  * 	initial values.
+ * @param {Object} [staticList] - Names of the keys in pvtScope to be shared
+ *  with descendant class constructors. Optional.
  * @param {Array} [protList] - Names of the keys in pvtScope to be shared with
  *  descendant classes. Optional.
  * @param {ClassModes} [classMode] - Inheritability of the new Class.
@@ -271,7 +274,7 @@ function parseES5(name, definition) {
  */
 function Class(pvtScope, staticList, protList, classMode, pubScope) {
 	var privateNames = {};
-	var privateStaticNames = {};
+	var protectedStaticNames = {};
 	var protectedNames = {};
 	var Constructor = Symbol("constructor");
 	var pubScopeDef;
@@ -335,8 +338,11 @@ function Class(pvtScope, staticList, protList, classMode, pubScope) {
 	var nameMatches = pubScopeDef.match(/(?:(?:function\s+(\w+)\s*\((?:\s*,\s*\w+)*\))|(?:class\s+(\w+)\s*(?:extends\s+\w+)?))\s*{/);
 	var name = nameMatches[1] || nameMatches[2];
 	var classDefScope = {
+		name,
 		[name]: {},
-		[baseClass.name]: baseClass
+		baseClassName: baseClass.name,
+		[baseClass.name]: baseClass,
+		inheritance: baseClass[Inheritance]
 	};
 	var keys = Object.keys(pvtScope);
 
@@ -346,7 +352,7 @@ function Class(pvtScope, staticList, protList, classMode, pubScope) {
 
 		let member = Object.getOwnPropertyDescriptor(pvtScope, key);
 		if ((member.value instanceof Box) && member.value.isStatic) {
-			privateStaticNames[key] = Symbol(key);
+			protectedStaticNames[key] = Symbol(key);
 		}
 		else {
 			privateNames[key] = Symbol(key);
@@ -364,7 +370,7 @@ function Class(pvtScope, staticList, protList, classMode, pubScope) {
 		let key = staticList[i];
 		if (key in privateNames) {
 			Object.defineProperty(staticScope, key, Object.getOwnPropertyDescriptor(pvtScope, key));
-			Object.defineProperty(privateStaticNames, key, {
+			Object.defineProperty(protectedStaticNames, key, {
 				enumerable: true,
 				value: privateNames[key]
 			});
@@ -382,10 +388,10 @@ function Class(pvtScope, staticList, protList, classMode, pubScope) {
 				get: getNameFn(privateNames, key)
 			});
 		}
-		else if (key in privateStaticNames) {
+		else if (key in protectedStaticNames) {
 			Object.defineProperty(protectedNames, key, {
 				enumerable: true,
-				get: getNameFn(privateStaticNames, key)
+				get: getNameFn(protectedStaticNames, key)
 			});
 		}
 	}
@@ -408,7 +414,7 @@ function Class(pvtScope, staticList, protList, classMode, pubScope) {
 		throw TypeError('This class definition makes no sense! Give me a "class" or a "function" definition.');
 	}
 
-	with(privateStaticNames) {
+	with(protectedStaticNames) {
 		with(staticScope) {	// Static methods shoudn't be able to access non-static stuff.
 			//Re-evaluate all functions in the private-static scope to ensure they can be accessed.
 			let iterator = redefineFunctions(staticScope);
@@ -419,7 +425,7 @@ function Class(pvtScope, staticList, protList, classMode, pubScope) {
 			}
 		}
 
-		with(classDefScope) with(privateNames) {
+		with(privateNames) {
 			//Re-evaluate all functions in the private scope to ensure they can be accessed.
 			let iterator = redefineFunctions(pvtScope);
 			let iter = iterator.next();
@@ -434,7 +440,7 @@ function Class(pvtScope, staticList, protList, classMode, pubScope) {
 					instance,
 					pvtScope,
 					privateNames,
-					privateStaticNames
+					protectedStaticNames
 				});
 
 				if (ProtectedMembers in instance) {
@@ -453,14 +459,22 @@ function Class(pvtScope, staticList, protList, classMode, pubScope) {
 			eval(`classDefScope[name] = ${defString.toString()};`);
 
 			retval = createClassProxy({
-				_class: classDefScope[name],
+				_class: classDefScope,
 				classMode,
 				pvtScope,
 				staticScope,
 				privateNames,
-				privateStaticNames,
+				protectedStaticNames,
 				StaticConstructor
 			});
+
+			if (baseClass && !isNativeFunction(baseClass)) {
+				var inheritance = retval[Inheritance];
+				if (inheritance) {
+					Object.setPrototypeOf(protectedStaticNames, inheritance.staticNames);
+					Object.setPrototypeOf(staticScope, inheritance.staticScope);
+				}
+			}
 
 			classDefScope[name] = retval;
 			return retval;
@@ -787,7 +801,7 @@ Object.defineProperties(Class, {
 
 Class.InitializeScope(Class);
 
-function unboxMember(privateNames, privateStaticNames, scope, dest, key, member) {
+function unboxMember(privateNames, protectedStaticNames, scope, dest, key, member) {
 	if (member.value instanceof Box) {
 		var def = {
 			enumerable: true,
@@ -802,17 +816,17 @@ function unboxMember(privateNames, privateStaticNames, scope, dest, key, member)
 
 		if (member.isProperty) {
 			if (member.value.get instanceof Function) {
-				with (classScope) with (privateNames) with (privateStaticNames)
+				with (classScope) with (privateNames) with (protectedStaticNames)
 					def.get = eval(`(${member.value.get.toString()})`).bind(scope);
 			}
 			if (member.value.set instanceof Function) {
-				with (classScope) with (privateNames) with (privateStaticNames)
+				with (classScope) with (privateNames) with (protectedStaticNames)
 					def.set = eval(`(${member.value.set.toString()})`).bind(scope);
 			}
 		}
 		else if (typeof(member.value) == "function") {
 			def.writable = false;
-			with (classScope) with (privateNames) with (privateStaticNames)
+			with (classScope) with (privateNames) with (protectedStaticNames)
 				def.value = eval(`(${member.value.toString()})`).bind(scope);
 		}
 		else {
@@ -829,12 +843,13 @@ function unboxMember(privateNames, privateStaticNames, scope, dest, key, member)
 
 function createClassProxy(params) {
 	var { _class, classMode, pvtScope, staticScope, privateNames, 
-			privateStaticNames, StaticConstructor } = params;
+			protectedStaticNames, StaticConstructor } = params;
 			
 	var handler = {
 		slots: {
 			type: `Class ${_class.name}`,
-			privateStaticScope: {},
+			protectedStaticNames,
+			protectedStaticScope: staticScope
 		},
 		apply(target) {
 			throw TypeError(`Class constructor ${target.name} cannot be invoked without 'new'`);
@@ -856,8 +871,14 @@ function createClassProxy(params) {
 		},
 		get(target, key, receiver) {
 			var retval;
-			if (Object.values(privateStaticNames).indexOf(key) >= 0) {
-				retval = this.slots.privateStaticScope[key];
+			if (Object.values(protectedStaticNames).indexOf(key) >= 0) {
+				retval = this.slots.protectedStaticScope[key];
+			}
+			else if (key === Inheritance) {
+				retval = {
+					staticNames: this.slots.protectedStaticNames,
+					staticScope: this.slots.protectedStaticScope
+				};
 			}
 			else {
 				retval = Reflect.get(target, key, receiver);
@@ -866,8 +887,8 @@ function createClassProxy(params) {
 		},
 		set(target, key, value, receiver) {
 			var retval = true;
-			if (Object.values(privateStaticNames).indexOf(key) >= 0) {
-				this.slots.privateStaticScope[key] = value;
+			if (Object.values(protectedStaticNames).indexOf(key) >= 0) {
+				this.slots.protectedStaticScope[key] = value;
 			}
 			else {
 				retval = Reflect.set(target, key, value, receiver);
@@ -876,11 +897,12 @@ function createClassProxy(params) {
 		},
 		has(target, key) {
 			var retval = true;
-			if (Object.values(privateStaticNames).indexOf(key) >= 0) {
+			if (Object.values(protectedStaticNames).indexOf(key) >= 0) {
 				retval = Reflect.has(this.slots.privateStaticScope, key);
 			}
-			else {
-				retval = Reflect.has(target, key);
+			else if (!(retval = Reflect.has(target, key))) {
+				//If it's not on target, check the parent constructor
+				retval = Reflect.has(Object.getPrototypeOf(target.prototype).constructor, key);
 			}
 			return retval;
 		}
@@ -893,11 +915,11 @@ function createClassProxy(params) {
 	for (let i=0; i<keys.length; ++i) {
 		let key = keys[i];
 		let member = Object.getOwnPropertyDescriptor(pvtScope, key);
-		let mKey = (key in privateStaticNames) ? privateStaticNames[key] : key;
+		let mKey = (key in protectedStaticNames) ? protectedStaticNames[key] : key;
 
 		if (member && member.isStatic) {
-			unboxMember(privateNames, privateStaticNames, retval,
-				handler.slots.privateStaticScope, mKey, member);
+			unboxMember(privateNames, protectedStaticNames, retval,
+				handler.slots.protectedStaticScope, mKey, member);
 		}
 	}
 
@@ -905,9 +927,9 @@ function createClassProxy(params) {
 	for (let i=0; i<keys.length; ++i) {
 		let key = keys[i];
 		let member = Object.getOwnPropertyDescriptor(staticScope, key);
-		let mKey = (key in privateStaticNames) ? privateStaticNames[key] : key;
+		let mKey = (key in protectedStaticNames) ? protectedStaticNames[key] : key;
 
-		unboxMember(privateNames, privateStaticNames, retval, retval, mKey, member);
+		unboxMember(privateNames, protectedStaticNames, retval, retval, mKey, member);
 	}
 
 	if (StaticConstructor instanceof Function) {
@@ -918,21 +940,21 @@ function createClassProxy(params) {
 }
 
 function createInstanceProxy(params) {
-	var { instance, pvtScope, privateNames, privateStaticNames } = params;
+	var { instance, pvtScope, privateNames, protectedStaticNames } = params;
 
 	var handler = {
 		slots: {
 			type: Object.getPrototypeOf(instance).constructor.name,
 			privateScope: {},
 			privateNames,
-			privateStaticNames
+			protectedStaticNames
 		},
 		get(target, key, receiver) {
 			var retval;
 			if (Object.values(this.slots.privateNames).indexOf(key) >= 0) {
 				retval = this.slots.privateScope[key];
 			}
-			else if (Object.values(this.slots.privateStaticNames).indexOf(key) >= 0) {
+			else if (Object.values(this.slots.protectedStaticNames).indexOf(key) >= 0) {
 				retval = instance.constructor[key];
 			}
 			else {
@@ -952,8 +974,11 @@ function createInstanceProxy(params) {
 			if (Object.values(this.slots.privateNames).indexOf(key) >= 0) {
 				this.slots.privateScope[key] = value;
 			}
-			else if (Object.values(this.slots.privateStaticNames).indexOf(key) >= 0) {
+			else if (Object.values(this.slots.protectedStaticNames).indexOf(key) >= 0) {
 				instance.constructor[key] = value;
+			}
+			else if (key == "Super") {
+				
 			}
 			else {
 				retval = Reflect.set(target, key, value, receiver);
@@ -965,7 +990,7 @@ function createInstanceProxy(params) {
 			if (Object.values(this.slots.privateNames).indexOf(key) >= 0) {
 				retval = Reflect.has(this.slots.privateScope, key);
 			}
-			else if (Object.values(this.slots.privateStaticNames).indexOf(key) >= 0) {
+			else if (Object.values(this.slots.protectedStaticNames).indexOf(key) >= 0) {
 				retval = Reflect.has(instance.constructor, key);
 			}
 			else {
@@ -980,7 +1005,7 @@ function createInstanceProxy(params) {
 		let key = keys[i];
 		let member = Object.getOwnPropertyDescriptor(pvtScope, key);
 		if ((key in pvtScope) && (key in privateNames)) {
-			unboxMember(privateNames, privateStaticNames, instance,
+			unboxMember(privateNames, protectedStaticNames, instance,
 				handler.slots.privateScope, privateNames[key], member);
 		}
 	}

@@ -40,6 +40,7 @@
   },
   "author": "Ranando D. King <kingmph@gmail.com> (https://thekingsnotice.blogspot.com)",
   "license": "Apache-2.0",
+  "main": "Class.js",
   "eslintConfig": {
     "parserOptions": {
       "ecmaVersion": 5

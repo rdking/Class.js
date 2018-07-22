@@ -1,189 +1,374 @@
+var PrivateMap = require('./PrivateMap');
+var Enum = require("../Enum");
 var Constructor = Symbol("constructor");
-var Class = (function() {
-    var instances = new WeakMap();
-    var prototypes = new WeakMap();
+var Initializer = Symbol("Initializer");
+/**
+ * ClassModes - An enumeration of the inheritability of defined Class types.
+ *
+ * @typedef {Enum} ClassModes
+ * @prop {number} Default - Sets unrestricted inheritability for the new Class.
+ * @prop {number} Abstract - Sets required inheritability for the new Class.
+ * @prop {number} Final - Restricts all inheritability of the new Class.
+ */
+var ClassModes = new Enum("Default", ["Default", "Abstract", "Final"]);
 
-    function isNativeFunction(obj) {
-        return ((obj instanceof Function) &&
-                /^function\s+\w+\(\)\s+{\s+\[native\s+code\]\s+}$/.test(obj.toString()));
-    }
+var Class = (function() {
+    const isProxy = Symbol("isProxy");
+    const ProxyTarget = Symbol("ProxyTarget");
+    const This = Symbol("This");
+    var privMap = new PrivateMap();
     
     function extend(dest, src) {
-        if (!dest || (typeof(dest) !== "object"))
+        if (!dest || (["object", "function"].indexOf(typeof(dest)) === -1))
             throw new TypeError("Cannot extend a non-object.");
 
         if (src) {
-            var proto = Object.getPrototypeOf(src);
-            while (!(proto || isNativeFunction(proto.constructor))) {
-                for (let key in src) {
-                    let def = Object.getOwnPropertyDescriptor(src, def);
-                    Object.defineProperty(dest, key, def);
-                }
-                src = proto;
-                proto = Object.getPrototypeOf(src);
+            let keys = Object.getOwnPropertyNames(src).concat(Object.getOwnPropertySymbols(src));
+            
+            for (let key of keys) {
+                let def = Object.getOwnPropertyDescriptor(src, key);
+                Object.defineProperty(dest, key, def);
             }
         }
+        return dest;
+    }
+
+    function isNativeFunction(obj) {
+        obj = obj[ProxyTarget] || obj;
+        return ((typeof(obj) == "function") && (obj instanceof Function) &&
+                /^function\s+\w+\(\)\s+{\s+\[native\s+code\]\s+}$/.test(obj.toString()));
+    }
+
+    function findNativeBase(ancestor) {
+        var retval = (isNativeFunction(ancestor)) ? ancestor : false;
+
+        while (ancestor && !retval && (ancestor !== Object)) {
+            let proto = ancestor.prototype;
+            while (proto && (proto.constructor === ancestor)) {
+                proto = Object.getPrototypeOf(proto)
+            }
+            ancestor = proto.constructor;
+            retval = (isNativeFunction(ancestor)) ? ancestor : false;
+        }
+
+        return retval;
     }
     
-    function makeLink(field) {
-        return  {
-            enumerable: true,
-            get: function getField() {
-                var internal = instances.get(this);
-                var retval = undefined;
-                if (internal) {
-                    let def = Object.getOwnPropertyDescriptor(internal, field);
-                    retval = internal[field];
-                    if (("value" in def) && (typeof(def.value) == "function")) {
-                        retval = retval.bind(internal);
-                    }
-                }
-                return retval;
-            },
-            set: function setField(val) { instances.get(this)[field] = val; }
-        };
-    }
+    function Super(...args) {
+        var parentProto = Object.getPrototypeOf(Object.getPrototypeOf(this));
+        var parent = parentProto.constructor;
+        var nativeBase = findNativeBase(parent);
+        var retval;
 
-    function makePrototypeLinks(proto) {
-        var retval = {};
-        var oldProto = proto;
-        var rval = retval;
+        if ((nativeBase === parent) && (parent !== Object)) {
+            retval = new parent(...args);
+        }
+        else if (parent === Object) {
+            retval = this;
+        }
+        else {
+            let pseudoThis = Object.assign(Object.create(parentProto), {[This]: this[This]});
+            retval = parent.apply(pseudoThis, args) || this[This] || this;
+            extend(retval, pseudoThis);
+        }
 
-        while (proto) {
-            var keys = Object.getOwnPropertyNames(proto).concat(Object.getOwnPropertySymbols(proto));
-
-            for (let key of keys) {
-                Object.defineProperty(rval, key, makeLink(key));
-            }
-
-            proto = Object.getPrototypeOf(proto);
-            if (proto) {
-                Object.setPrototypeOf(rval, {});
-                rval = Object.getPrototypeOf(rval);
-            }
-            else {
-                Object.setPrototypeOf(rval, oldProto);
-            }
+        if (!!nativeBase && (parent !== Object)) {
+            Object.setPrototypeOf(retval, Object.getPrototypeOf(this));
+            Object.setPrototypeOf(this, Object.prototype);
+            extend(retval, this);
+            Object.setPrototypeOf(this, Object.getPrototypeOf(retval));
         }
 
         return retval;
     }
 
-    return function Class(c) {
-        var inheritance = prototypes.get(Object.getPrototypeOf(c.prototype).constructor) || {};
-
-        if ((typeof(c) == "function") && (c.prototype && (c.prototype.constructor === c))) {
-            let protoData = {
-                prot: Object.create(inheritance.prot || {}),
-                privContext: Object.create(inheritance.protContext || {}),
-                protContext: Object.create(inheritance.protContext || {})
-            };
+    function findConstructor(c) {
+        var cString = (c[ProxyTarget] || c).toString();
+        var cProto = c.prototype;
+        var regex = /\Wconstructor\s*\(([^]*?)\)\s*\{([^]+\})/;
+        var index = cString.search(regex);
+        var matches = cString.match(regex);
+        var retval = `function ${c.name}() {
+            return privMap.init(Super.call(this));
+        }`;
+        
+        if (index > -1) {
+            let keys = Object.getOwnPropertyNames(cProto)
+                             .concat(Object.getOwnPropertySymbols(cProto));
+            retval = `function ${c.name}(${matches[1]}) {${matches[2]}`;
             
-            let processObj = (proto, prototype) => {
-                let pKeys = Object.getOwnPropertyNames(proto).filter(
-                    (value) => (['constructor', 'prototype'].indexOf(value) == -1));
-                    
-                for (let key of pKeys) {
-                    let priv = 0;
-                    let parts = [key];
-                    if (key.includes(' ')) {
-                        parts = key.split(' ');
+            let endIndex = retval.length;
+            for (let key of keys) {
+                if (key == "constructor")
+                    continue;
+                let fnRegex = new RegExp(`\\s((get|set|static|async)\\s+)*?(${key}|\\[".*"\\])\\s*\\(`, "m");
+                let idx = retval.search(fnRegex);
+                if ((idx > 15) && (idx < endIndex)) { //15 -> constructor(){}
+                    endIndex = idx;
+                }
+            }
+
+            endIndex = retval.lastIndexOf("}", endIndex) + 1;
+            retval = retval.substr(0, endIndex);
+        }
+
+        if (/\ssuper\(/.test(retval)) {
+            retval = retval.replace(/this(\W)/mg, "retval$1")
+                           .replace(/(\s)super\(([^;]*)\);/m, `$1var retval = privMap.init(Super.call(this, $2));`)
+                           .replace(/\}$/, "\t\treturn retval;\n\t}");
+        }
+        return retval;        
+    }
+
+    var SymbolRef = (function() {
+        const storage = [];
+        return function SymbolRef(symbol, store) {
+            var retval = storage.length;
+            if (store) {
+                storage.push(symbol);
+            }
+            else {
+                if (symbol in storage) {
+                    retval = storage[symbol];
+                    delete storage[symbol];
+                }
+                else {
+                    retval = void 0;
+                }
+            }
+
+            return retval;
+        }
+    })();
+
+    function fixClass(c, classProto) {
+        var keys = Object.getOwnPropertyNames(classProto).
+            concat(Object.getOwnPropertySymbols(classProto));
+        var retval = `{\n\tconstructor: ${findConstructor(c)}`;
+
+        for (let key of keys) {
+            if (key == "constructor")
+                continue;
+
+            let def = Object.getOwnPropertyDescriptor(classProto, key);
+
+            if ("value" in def) {
+                let val = def.value.toString();
+                if (val.indexOf("(") === 0) {
+                    if (typeof(key) == "symbol") {
+                        let id = SymbolRef(key, true);
+                        retval += `,\n\t[SymbolRef(${id})]${val}`;
                     }
-                    
-                    while (parts.length > 1) {
-                        let part = parts.shift();
-                        switch (part) {
-                            case "private":
-                            priv = 2;
-                            break;
-                            case "protected":
-                            priv = 1;
-                            break;
-                            case "public":
-                            priv = 0;
-                            break;
-                            default:
-                            parts.unshift(part);
-                            parts = [parts.join('')];
-                        }
-                    }
-                    
-                    var temp = parts[0];
-                    var hasEquals = false;
-                    if (/^\w+=/.test(temp)) {
-                        hasEquals = true;
-                        parts = temp.split('=');
-                    }
-                    
-                    var fieldName = parts.shift();
-                    var field = (priv) ? Symbol(fieldName) : fieldName;
-                    var value = (parts.length) ? eval(parts.join('=')) : void 0;
-                    var def = Object.getOwnPropertyDescriptor(proto, key);
-                    if (priv && hasEquals && ("value" in def)) {
-                        def.value = value;
-                    }
-                    delete proto[key];
-                    var link = makeLink(field);
-                    Object.defineProperty(prototype, field, def);
-                    
-                    switch (priv) {
-                        case 2:     //Private
-                            Object.defineProperty(protoData.privContext, fieldName, { value: field });
-                            break;
-                        case 1:     //Protected
-                            Object.defineProperty(protoData.prot, field, link);
-                            Object.defineProperty(protoData.privContext, fieldName, { value: field });
-                            Object.defineProperty(protoData.protContext, fieldName, { value: field });
-                            break;
-                        default:    //Public
-                            Object.defineProperty(proto, field, link);
-                            Object.defineProperty(protoData.prot, field, link);
-                            break;
+                    else {
+                        retval += `,\n\t["${key.replace(/"/gm, '\\"')}"]${val}`;
                     }
                 }
-            };
-
-            let fixClass = (src) => {
-                return src.replace(/(\sconstructor(\s*\([^]*?\)\s*\{[^]*?super\(\);?))/, '$1\n\t}\n\n\t[Constructor]() {');
+                else {
+                    retval += `,\n\t${val}`;
+                }
             }
-            
-            with (protoData.privContext) {
-                c = (function(_c) {
-                    var retval = eval(`(function ${_c.name}() {
-                        if (!new.target) {
-                            throw new TypeError("Class constructor ${_c.name} cannot be invoked without 'new'");
-                        }
-                        var args = Array.prototype.slice.call(arguments);
-                        var retval = new _c();
-                        instances.set(retval, this);
-                        if (typeof(this[Constructor]) == "function") {
-                            this[Constructor](...args);
-                        }
-                        return retval;
-                    })`);
-
-                    //Move the constructor!
-                    Object.defineProperty(retval.prototype, Constructor, { value: _c.prototype[Constructor] });
-                    delete _c.prototype[Constructor];
-                    
-                    extend(retval.prototype, inheritance.prot);
-                    var cProtoProto = Object.getPrototypeOf(_c.prototype);
-                    Object.setPrototypeOf(retval.prototype, cProtoProto);
-                    Object.setPrototypeOf(_c.prototype, makePrototypeLinks(cProtoProto));
-                    processObj(_c.prototype, retval.prototype);
-                    processObj(_c, retval);
-                    prototypes.set(retval, protoData);
-                    Object.defineProperty(retval, toString, { value: () => _c.toString() });
-
-                    return retval;
-                })(eval(`(${fixClass(c.toString())})`));
+            else {
+                if ("get" in def) {
+                    retval += `,\n\t${def.get.toString()}`;
+                }
+                if ("set" in def) {
+                    retval += `,\n\t${def.set.toString()}`;
+                }
             }
-
-            return c;
         }
-        else
-            throw new TypeError("Must be a constructor function!");
+
+        let cKeys = Object.getOwnPropertyNames(c)
+                          .concat(Object.getOwnPropertySymbols(c))
+                          .filter((element) => !(element in retval.constructor));
+        if (cKeys.length) {
+            let cString = (c[ProxyTarget] || c).toString();
+            retval += ',\n\tstatics: {';
+            for (let key of cKeys) {
+                let first = true;
+                let desc = Object.getOwnPropertyDescriptor(c, key);
+                
+                if (typeof(key) == "symbol") {
+                    let id = SymbolRef(key, true);
+                    retval += `\n\t\t[SymbolRef(${id})]: {`;
+                }
+                else {
+                    retval += `\n\t\t['${key.replace("'","\\'")}']: {`;
+                }
+                
+                for (let dKey in desc) {
+                    let rDKey = dKey.replace(/([\[\]\{\}\(\)\?\*\+\\])/mg, "\\$1");
+                    let value = desc[dKey].toString();
+                    let rValue = value.replace(/([\[\]\{\}\(\)\?\*\+\\])/mg, "\\$1");
+                    let tester = new RegExp(`\\[(["'\\\`])${rDKey}\\1\\]\\s*:\\s*${rValue}`, "m");
+                    let colon = ((["get","set","value"].indexOf(dKey) === -1) || tester.test(cString))? ': ' : '';
+                    retval += `${(first)? '' : ','}\n\t\t\t${dKey}${colon}${value}`;
+                    first = false;
+                }
+                retval += `\n\t\t}`;
+            }
+            retval += '\n\t}';
+        }
+
+        return retval + '\n}';
     }
+
+    var retval = function Class(mod, c) {
+        if (!c) {
+            c = mod;
+            mod = ClassModes.Default;
+        }
+
+        if ((typeof(c) != "function") || !(c.prototype && (c.prototype.constructor === c))) {
+            throw new TypeError("Must be a constructor function!");
+        }
+
+        /* Make a dupe of the original prototype. We can't change the original
+         * because we're not sure who owns it. It'd be ok if we could be sure
+         * we own it, but we could have received it indirectly. */
+        var dupProto = extend({}, c.prototype);
+        
+        //Drop the constructor. We're going to have to re-create it anyway.
+        delete dupProto.constructor;
+        //Get the private container for the base class        
+        var inherit = privMap.get(Object.getPrototypeOf(c.prototype).constructor) || {};
+        //Create a new function that will serve as the outer instance constructor.
+        var ctorObj = {}; //We'll set this later, but the new constuctor needs it.
+        var retval = eval(`(function ${c.name}(...args) {
+            if (!(new.target || (this instanceof ctorObj.constructor))) {
+                throw new Error("Constructor ${c.name} requires 'new'");
+            }
+            return ctorObj.constructor.apply(this, args) || this;
+        })`);
+
+        //Create the proxy handler, because we're making an inverse membrane
+        var handler = {
+            isExtensible(target, key) {
+                return true;
+            },
+            preventExtensions(target) {
+                return false;
+            },
+            apply(target, context, args) {
+                if (context[isProxy]) {
+                    retval = target.apply(context, args);//Reflect(target, context, args);
+                }
+                else {
+                    var newContext = new Proxy(context, Object.assign({[isProxy]: true}, handler));
+                    privMap.set(newContext, privMap.get(context));
+                    var retval = target.apply(newContext, args);//Reflect.apply(target, newContext, args);
+                    privMap.delete(newContext);
+                    retval = (retval === newContext) ? context : retval;
+                }
+                return retval;
+            },
+            get(target, key, receiver) {
+                var retval;
+                if (key === isProxy) {
+                    retval = this[isProxy];
+                }
+                else if ((Object.getPrototypeOf(target) === Object.getPrototypeOf(receiver)) &&
+                         (key === ProxyTarget)) {
+                    retval = target
+                }
+                else if (protoData && (Object.values(protoData.privNames).indexOf(key) >= 0)) {
+                    retval = privMap.getKey(receiver, key);
+                }
+                else if (protoData && (Object.values(protoData.staticPrivNames).indexOf(key) >= 0)) {
+                    retval = privMap.getStaticKey(receiver, key);
+                }
+                else {
+                    retval = Reflect.get(target, key, receiver);
+                }
+
+                if ((typeof(retval) == "function") && (retval.name != c.name))
+                    retval = new Proxy(retval, Object.assign({[isProxy]: true}, handler));
+
+                return retval;
+            },
+            set(target, key, value, receiver) {
+                var retval = true;
+                if (protoData && (Object.values(protoData.privNames).indexOf(key) >= 0)) {
+                    privMap.setKey(receiver, key, value);
+                }
+                else if (protoData && (Object.values(protoData.staticPrivNames).indexOf(key) >= 0)) {
+                    privMap.setStaticKey(receiver, key, value);
+                }
+                else {
+                    retval = Reflect.set(target, key, value, receiver);
+                }
+                return retval;
+            },
+            has(target, key) {
+                var retval = true;
+                if (protoData && (Object.values(protoData.privNames).indexOf(key) >= 0)) {
+                    retval = privMap.hasKey(target, key);
+                }
+                else if (protoData && (Object.values(protoData.staticPrivNames).indexOf(key) >= 0)) {
+                    retval = privMap.hasStaticKey(target, key);
+                }
+                else {
+                    retval = Reflect.has(target, key);
+                }
+                return retval;
+            }
+        };
+
+        //Copy the DECLARATION function if it exists.
+        if (typeof(c[PrivateMap.DECLARATION]) == "function") {
+            retval[PrivateMap.DECLARATION] = c[PrivateMap.DECLARATION];
+        }
+
+        //Proxy the new constructor.
+        retval = new Proxy(retval, Object.assign({[isProxy]: true}, handler));
+
+        //Make PrivateMap aware of the new class
+        privMap.initConstructor(retval);
+        //Get the private container for the class
+        var protoData = privMap.get(retval);
+        
+        //Patch up the private container with its inheritance.
+        protoData.modifier = mod;
+        Object.setPrototypeOf(protoData.privNames, inherit.privNames || {});
+        Object.setPrototypeOf(protoData.protNames, inherit.protNames || {});
+        Object.setPrototypeOf(protoData.privProto, inherit.privProto || {});
+        Object.setPrototypeOf(protoData.staticPrivNames, inherit.staticPrivNames || {});
+        Object.setPrototypeOf(protoData.staticProtNames, inherit.staticProtNames || {});
+        Object.setPrototypeOf(protoData.staticData, inherit.staticData || {});
+
+        //Everything else we do needs to know about the private symbols
+        with (protoData.privNames) with (protoData.staticPrivNames) {
+            /* Create a new function with the same name as the constructor to serve
+            * as the new constructor. Make sure [PrivateMap.DECLARATION] is copied
+            * if it exists. */
+            var result = eval(`(${fixClass(c, dupProto)})`);
+            Object.setPrototypeOf(result, Object.getPrototypeOf(c.prototype));
+            
+            //Set the internal constructor to the constructor we modified.
+            ctorObj.constructor = result.constructor;
+            //Set the prototype constructor to the constructor we'll return.
+            result.constructor = retval;
+            //Proxy the prototype object so we can manipulate private member usage
+            ctorObj.constructor.prototype = new Proxy(result, Object.assign({[isProxy]: true}, handler));
+            retval.prototype = ctorObj.constructor.prototype;
+
+            //Move the static members onto retval
+            extend (retval, result.statics);
+            delete result.statics;
+        }
+
+        return retval;
+    };
+
+    Object.defineProperties(retval, {
+        Modes: {
+            value: ClassModes
+        },
+        DECLARATION: {
+            value: PrivateMap.DECLARATION
+        }
+    });
+
+    return retval;
 })();
 
 var hasES6 = (function() { 
@@ -212,6 +397,5 @@ if (hasES6) {
 	}
 }
 else {
-
 	console.warn("No known means of exporting 'Class' namespace!");
 }

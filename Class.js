@@ -224,10 +224,8 @@ function isValidType(type, value) {
  * @param {Object} name - User-given name for the class.
  * @param {Object} owner - Public instance of the Class being constucted.
  * @param {Object} scopes - Object containing all the member scope objects.
- * @param {Function} protectedConstructor - used to construct the protected
- *  & private scopes.
  */
-function ClassArgs(name, owner, scopes, constructors) {
+function ClassArgs(name, owner, scopes) {
 	if (!(this instanceof ClassArgs)) {
 		throw new ClassError("ClassArgs is a constructor. You must use 'new'.");
 	}
@@ -236,69 +234,55 @@ function ClassArgs(name, owner, scopes, constructors) {
 	this.childDomain = {};
 	this.scopes = scopes;
 	this.topDomain = owner;
-	this.constructors = constructors
 	this.native = null;
 }
 
 /**
- * Generates a constructor function for creating a private domain instance.
+ * Creates the private, protected, and public instance domains.
  *
- * @param {Object} privateProto - The private prototype object
- * @returns A private constructor.
+ * @param {Object} owner - the "this" of the current Class being constructed.
+ * @param {Object} childDomain - the private domain of the a descendant Class
+ * requesting the current Class's construction.
+ * @param {Object} topDomain - the "this" of the top-level descendant that
+ * started this construction chain.
  */
-function privateConstructorFactory(privateProto, superProto) {
-	var retval = function privateConstructor(classConstructor, classArgs) {
-		//Don't bother if this isn't an instance...
-		if (!(this instanceof (retval))) {
-			throw new TypeError("Constructor privateConstructor requires 'new'");
-		}
+function initialize(classArgs) {
+	//First, create a private domain and populate it..
+	var owner = classArgs.owner;
+	var childDomain = classArgs.childDomain;
+	var topDomain = classArgs.topDomain;
+	var scopes = classArgs.scopes;
+	var privateDomain = {};
 
-		//First, create a private domain and populate it..
-		var owner = classArgs.owner;
-		var childDomain = classArgs.childDomain;
-		var topDomain = classArgs.topDomain;
-		var scopes = classArgs.scopes;
+	//Put a flag on it so it can be identified as a private domain object.
+	Object.defineProperties(privateDomain, {
+		"__isPrivateDomain__": {
+			value: true
+		},
+		"Self": {
+			configurable: true,
+			value: owner
+		},
+		"Super": {
+			value: (function() {
+				var retval = (function Super() {
+					var base = MetaData.get(Object.getPrototypeOf(owner).constructor).definition.Extends;
+					var isNative = isNativeFunction(base);
+					var args = Array.prototype.slice.call(arguments, ~~isNative);
+					//This is ugly, but it preserves the objects that may have been passed in.
+					var parent = eval('new base(' + ((args.length) ? 'args[' + Object.keys(args).join('], args[') + ']' : '') + ')');
 
-		Object.defineProperty(this, {
-			"Self": { value: owner },
-			"Super": {
-				value: (function() {
-					var retval = (function Super() {
-						var base = MetaData.get(Object.getPrototypeOf(this.Self).constructor).definition.Extends;
-						var isNative = isNativeFunction(base);
-						var args = Array.prototype.slice.call(arguments, ~~isNative);
-						//This is ugly, but it preserves the objects that may have been passed in.
-						var parent = eval('new base(' + ((args.length) ? 'args[' + Object.keys(args).join('], args[') + ']' : '') + ')');
-		
-						if (isNative) {
-							//Send this upstream to be used by the overconstructor...
-							classArgs.native = parent;
-							Object.setPrototypeOf(Object.getPrototypeOf(classArgs.owner), base.prototype);
-						}
-						else {
-							var prot = Instances.get(parent);
-							Object.setPrototypeOf(this.Super, prot);
-						}
-					}).bind(void 0, classArgs);
-		
-					Object.setPrototypeOf(retval, superProto);
-					return retval;
-				})()
-			}
-		});
-		expandScope(privateDomain, scopes[PRIVATESCOPE], null, true);
-		
-		//If there's a child domain, construct the protected domain and attach it.
-		if (childDomain) {
-			var protectedDomain = {};
-			expandScope(protectedDomain, scopes[PROTECTEDSCOPE]);
-			childDomain.__proto__ = protectedDomain;
-		}
-		
-		return privateDomain;
-	};
+					if (isNative) {
+						//Send this upstream to be used by the overconstructor...
+						classArgs.native = parent;
+						Object.setPrototypeOf(Object.getPrototypeOf(classArgs.owner), base.prototype);
+					}
+				}).bind(owner, classArgs);
 
-	Object.defineProperties(privateProto, {
+				Object.setPrototypeOf(retval, scopes[SUPERPROTO]);
+				return retval;
+			})()
+		},
 		"Delegate" : {
 			value: function Delegate(fn) {
 				return new Functor(this, fn);
@@ -309,32 +293,22 @@ function privateConstructorFactory(privateProto, superProto) {
 				var retval;
 				if (other instanceof Object.getPrototypeOf(this.Self).constructor)
 					retval = Instances.get(other);
-	
+
 				return retval;
 			}
 		}
 	});
-	retval.prototype = privateProto;
-	privateProto.constructor = retval;
 
-	return retval;
-}
+	expandScope(privateDomain, scopes[PRIVATESCOPE], null, true);
 
-function protectedConstructorFactory(proto, staticProto) {
-	var retval = function protectedConstructor(privateInstance) {
-		if (!(this instanceof (retval))) {
-			throw new TypeError("Constructor protectedConstructor requires 'new'");
-		}
+	//If there's a child domain, construct the protected domain and attach it.
+	if (childDomain) {
+		var protectedDomain = {};
+		expandScope(protectedDomain, scopes[PROTECTEDSCOPE]);
+		childDomain.__proto__ = protectedDomain;
+	}
 
-		Instances.set(this, privateInstance);
-	};
-
-	retval.prototype = proto;
-	proto.constructor = retval;
-	Object.setPrototypeOf(staticProto, Object.getPrototypeOf(retval));
-	Object.setPrototypeOf(retval, staticProto);
-
-	return retval;
+	return privateDomain;
 }
 
 /**
@@ -353,8 +327,6 @@ function typeConstructor(classArgs) {
 	var scopes = classArgs.scopes;
 	var childDomain = classArgs.childDomain;
 	var self = classArgs.topDomain;
-	var privateConstructor = classArgs.constructors.private;
-	var protectedConstructor = classArgs.constructors.protected;
 	var metaData = MetaData.get(Object.getPrototypeOf(this).constructor);
 	var classConstructor = metaData.Constructor;
 	var argc = arguments.length - 1;
@@ -365,11 +337,6 @@ function typeConstructor(classArgs) {
 	if (!classConstructor || classConstructor.isPublic ||
 		(childDomain && classConstructor.isProtected)) {
 		var args = Array.prototype.slice.call(arguments, 1);
-		var privateInstance = new privateConstructor(classConstructor, classArgs);
-
-		Instances.set(this, new protectedConstructor(privateInstance));
-
-		/*
 		var instance = initialize(classArgs);
 
 		if (metaData.Mixins)
@@ -401,7 +368,6 @@ function typeConstructor(classArgs) {
 		else if (metaData.definition.Extends) {
 			Function.prototype.apply.call(instance.Super, instance, args);
 		}
-		*/
 	}
 	else if (classConstructor)
 		throw new Error("Constructor '" + name + "' is not accessible!");
@@ -428,47 +394,37 @@ function generateTypeConstructor(name, scopes) {
 	if (!/^(?!\d)\w\w*$/.test(name))
 		throw new ClassError('Invalid name: "' + name + '". Must be a valid JS variable name.');
 
-	var privateConstructor = privateConstructorFactory(scopes[PRIVATESCOPE], scopes[SUPERPROTO]);
-	var protectedConstructor = protectedConstructorFactory(scopes[PROTECTEDSCOPE], scopes[PROTECTEDSTATICSCOPE]);
 	var retval = eval("(function " + name + "() {\n" +
-		"	var callErrorString = \"This is a class instance generating function. \" + \n" +
-		"						  \"You must use 'new " + (name || "<ClassName>") + "\" + \n" +
-		"						  \"(...)' to use this function.\"; \n" +
-		"	if (!(this instanceof " + name + ")) {\n" +
-		"		throw new ClassError(callErrorString);\n" +
-		"	}\n" +
-		"	\n" +
-		"	var args = Array.prototype.slice.call(arguments);\n" +
-		"	var arg0 = args[0];\n" +
-		"	var hasClassArgs = arg0 instanceof ClassArgs;\n" +
-		"	var classArgs = new ClassArgs(name, this, scopes, {\n" +
-		"		private: privateConstructor, \n" +
-		"		protected: protectedConstructor \n" +
-		"	});\n" +
-		"	if (hasClassArgs) {\n" +
-		"		Object.setPrototypeOf(classArgs, arg0);\n" +
-		"		classArgs.topDomain = arg0.topDomain;\n" +
-		"		args.shift();\n" +
-		"	}\n" +
-		"	args.unshift(classArgs);\n" +
-		"	\n" +
-		"	var retval = typeConstructor.apply(this, args);\n" +
-		"	if (hasClassArgs) {\n" +
-		"		arg0.native = classArgs.native;\n" +
-		"	}\n" +
-		"	else if (classArgs.native) {\n" +
-		"		retval = classArgs.native;\n" +
-		"		Object.setPrototypeOf(retval, this);\n" +
-		"	}\n" +
-		"	\n" +
-		"	return retval;\n" +
-		"});"
-	);
+		 "	var callErrorString = \"This is a class instance generating function. \" + \n" +
+		 "						  \"You must use 'new " + (name || "<ClassName>") + "\" + \n" +
+		 "						  \"(...)' to use this function.\"; \n" +
+		 "	if (!(this instanceof " + name + ")) {\n" +
+		 "		throw new ClassError(callErrorString);\n" +
+		 "	}\n" +
+		 "	\n" +
+		 "	var args = Array.prototype.slice.call(arguments);\n" +
+		 "	var arg0 = args[0];\n" +
+		 "	var hasClassArgs = arg0 instanceof ClassArgs;\n" +
+		 "	var classArgs = new ClassArgs(name, this, scopes);\n" +
+		 "	if (hasClassArgs) {\n" +
+		 "		Object.setPrototypeOf(classArgs, arg0);\n" +
+		 "		classArgs.topDomain = arg0.topDomain;\n" +
+		 "		args.shift();\n" +
+		 "	}\n" +
+		 "	args.unshift(classArgs);\n" +
+		 "	\n" +
+		 "	var retval = typeConstructor.apply(this, args);\n" +
+		 "	if (hasClassArgs) {\n" +
+		 "		arg0.native = classArgs.native;\n" +
+		 "	}\n" +
+		 "	else if (classArgs.native) {\n" +
+		 "		retval = classArgs.native;\n" +
+		 "		Object.setPrototypeOf(retval, this);\n" +
+		 "	}\n" +
+		 "	\n" +
+		 "	return retval;\n" +
+		 "});");
 
-	scopes[STATICSCOPE].isStatic = true;
-	scopes[PRIVATESCOPE].isPrivate = true;
-	scopes[PUBLICSTATICSCOPE] = retval;
-	retval.prototype = scopes[PUBLICSCOPE];
 	return retval;
 }
 
@@ -613,12 +569,10 @@ function createLinkBox(key) {
 		privilege: Privilege.Link,
 		value: {
 			get: new Functor(null, function getProperty() {
-				var obj = Instances.get(this);
-				return (obj) ? obj[key] : undefined;
+				return (this && (this !== global)) ? Instances.get(this)[key] : undefined;
 			}),
 			set: new Functor(null, function setProperty(value) {
-				var obj = Instances.get(this);
-				obj && (obj[key] = value);
+				this && (this !== global) && (Instances.get(this)[key] = value);
 			})
 		}
 	});
@@ -721,10 +675,11 @@ function unpackBox(box, target, context) {
 		}
 
 		if (isSimpleFn) {
-			value = new Functor(target, value);
+			retval.value = new Functor(target, value);
 		}
-
-		retval.value = value;
+		else {
+			retval.value = value;
+		}
 	}
 
 	return retval;
@@ -769,40 +724,35 @@ function populateScopes(scopes, members) {
 	for (var key in members) {
 		if (members.hasOwnProperty(key) && (ReservedKeys.indexOf(key) == -1)) {
 			var member = members[key];
-			var link = createLinkBox(key);
 
 			//If it's static, move it to STATICSCOPE.
 			if (member.isStatic) {
 				Object.defineProperty(scopes[STATICSCOPE], key,
 									  unpackBox(member, scopes[STATICSCOPE]));
-				Object.defineProperty(scopes[PRIVATESCOPE], key,
-									  unpackBox(link, scopes[STATICSCOPE]));
+				scopes[PRIVATESCOPE][key] = createLinkBox(key);
 
 				//Link it to the proper privilege level as well.
 				if (!member.isPrivate) {
 					Object.defineProperty(scopes[PROTECTEDSTATICSCOPE], key,
-										  unpackBox(link, scopes[STATICSCOPE]));
+										  unpackBox(createLinkBox(key), scopes[STATICSCOPE]));
 				}
 
 				if (member.isPublic) {
 					Object.defineProperty(scopes[PUBLICSTATICSCOPE], key,
-										  unpackBox(link, scopes[STATICSCOPE]));
+										  unpackBox(createLinkBox(key), scopes[STATICSCOPE]));
 				}
 			}
 			else {
 				//If we made it here, it's not static. Put it in PRIVATESCOPE.
-				Object.defineProperty(scopes[PRIVATESCOPE], key,
-									  unpackBox(member, undefined));
+				scopes[PRIVATESCOPE][key] = member;
 
 				//Now just figure out where we need to link it.
 				if (!member.isPrivate) {
-					Object.defineProperty(scopes[PROTECTEDSCOPE], key,
-										  unpackBox(link, undefined));
+					scopes[PROTECTEDSCOPE][key] = createLinkBox(key);
 				}
 
 				if (member.isPublic) {
-					Object.defineProperty(scopes[PROTECTEDSCOPE], key,
-										  unpackBox(link, undefined));
+					scopes[PUBLICSCOPE][key] = createLinkBox(key);
 				}
 			}
 		}
@@ -904,10 +854,7 @@ function generateMetaData(This, name, definition, scopes) {
 	});
 
 	MetaData.set(This, metadata);
-	Object.defineProperties(This.prototype, {
-		"isClassInstance": { value: true },
-		"constructor": { value: This }
-	});
+	Object.defineProperty(This.prototype, "isClassInstance", { value: true });
 	Object.defineProperty(scopes[STATICSCOPE], "Self", { value: This });
 }
 
@@ -919,17 +866,13 @@ function generateMetaData(This, name, definition, scopes) {
 function createScopesContainer() {
 	var retval = {};
 
-	//Protected Static constructor parts
-	retval[STATICSCOPE] = {};			//To be used as a context
-	retval[PROTECTEDSTATICSCOPE] = {};	//To be the prototype
-	//Protected constructor parts
-	retval[PRIVATESCOPE] = {};			//To be used as a context
-	retval[PROTECTEDSCOPE] = {};		//To be the prototype
-	//Public constructor parts
-	retval[PUBLICSCOPE] = {};			//To be the prototype
-	retval[PUBLICSTATICSCOPE] = {};		//To be members
-	//Super constructor parts
-	retval[SUPERPROTO] = null;			//To be the prototype
+	retval[STATICSCOPE] = {};
+	retval[PRIVATESCOPE] = {};
+	retval[PROTECTEDSCOPE] = {};
+	retval[PROTECTEDSTATICSCOPE] = {};
+	retval[PUBLICSCOPE] = {};
+	retval[PUBLICSTATICSCOPE] = {};
+	retval[SUPERPROTO] = null;
 
 	return retval;
 }
@@ -1012,64 +955,64 @@ function inherit(This, scopes) {
 
 	//First, handle Extends...
 	var eMetadata = MetaData.get(extended);
-	var extendedScope = (eMetadata && eMataData.isClass) ? eMetadata.scopes : {};
 	if (eMetadata && eMetadata.isClass) {
-		Object.setPrototypeOf(scopes[STATICSCOPE], extendedScope[PROTECTEDSTATICSCOPE])
+		var extendedScope = eMetadata.scopes;
 		Object.setPrototypeOf(scopes[PROTECTEDSTATICSCOPE], extendedScope[PROTECTEDSTATICSCOPE]);
 		Object.setPrototypeOf(scopes[PROTECTEDSCOPE], extendedScope[PROTECTEDSCOPE]);
 		Object.setPrototypeOf(scopes[PUBLICSTATICSCOPE], extendedScope[PUBLICSTATICSCOPE]);
-		Object.setPrototypeOf(scopes[PUBLICSCOPE], extendedScope[PUBLICSCOPE]);
+		Object.setPrototypeOf(scopes[PUBLICSCOPE], extended.prototype);
 
 		//Don't forget to build the Super() prototype
 		scopes[SUPERPROTO] = createSuperProto(extended, extendedScope);
 	}
 
 	//Then, handle Mixins...
-	if (mixinList.length) {
-		var mixer = createScopesContainer();
-		for (var i=0; i<mixinList.length; ++i) {
-			var obj = mixinList[i];
+	var mixer = createScopesContainer();
+	for (var i=0; i<mixinList.length; ++i) {
+		var obj = mixinList[i];
 
-			if (isConstructor(obj)) {
-				//The prototype of a constructor is for non-static scope.
-				extend(mixer[PRIVATESCOPE], obj.prototype);
-				delete mixer[PRIVATESCOPE].constructor;
+		if (isConstructor(obj)) {
+			//The prototype of a constructor is for non-static scope.
+			extend(mixer[PRIVATESCOPE], obj.prototype);
+			delete mixer[PRIVATESCOPE].constructor;
 
-				cloneAsLinks(obj.prototype, mixer[PROTECTEDSCOPE], mixer[PRIVATESCOPE]);
-				cloneAsLinks(obj.prototype, mixer[PUBLICSCOPE], mixer[PRIVATESCOPE]);
+			cloneAsLinks(obj.prototype, mixer[PROTECTEDSCOPE], mixer[PRIVATESCOPE]);
+			cloneAsLinks(obj.prototype, mixer[PUBLICSCOPE], mixer[PRIVATESCOPE]);
 
-				//The constructor itself is static scope. Just remember to ignore 
-				//the members of Function itself and prototype.
-				var sMixer = {};
-				var fKeys = Object.getOwnPropertyNames(Function.prototype);
-				fKeys.push('prototype');
-				
-				extendIf(function(src, key) {
-					return (src.hasOwnProperty(key) && (fKeys.indexOf(key) == -1));
-				}, obj, sMixer);
+			//The constructor itself is static scope. Just remember to ignore 
+			//the members of Function itself and prototype.
+			var sMixer = {};
+			var fKeys = Object.getOwnPropertyNames(Function.prototype);
+			fKeys.push('prototype');
+			
+			extendIf(function(src, key) {
+				return (src.hasOwnProperty(key) && (fKeys.indexOf(key) == -1));
+			}, obj, sMixer);
 
-				extend(mixer[STATICSCOPE], sMixer);
-				cloneAsLinks(sMixer, mixer[PROTECTEDSTATICSCOPE], mixer[STATICSCOPE]);
-				cloneAsLinks(sMixer, mixer[PUBLICSTATICSCOPE], mixer[STATICSCOPE]);
-			}
-			else if (obj instanceof Object) {
-				extend(mixer[PRIVATESCOPE], obj);
-
-				cloneAsLinks(obj, mixer[PROTECTEDSCOPE], mixer[PRIVATESCOPE]);
-				cloneAsLinks(obj, mixer[PUBLICSCOPE], mixer[PRIVATESCOPE]);
-			}
-			else
-				throw new ClassDefError("Only Objects and Functions can be mixed into a Class!", "Mixins");
+			extend(mixer[STATICSCOPE], sMixer);
+			cloneAsLinks(sMixer, mixer[PROTECTEDSTATICSCOPE], mixer[STATICSCOPE]);
+			cloneAsLinks(sMixer, mixer[PUBLICSTATICSCOPE], mixer[STATICSCOPE]);
 		}
+		else if (obj instanceof Object) {
+			extend(mixer[PRIVATESCOPE], obj);
 
-		//After all of that, now it's time to join the mixer to the scopes
-		var list = [PUBLICSCOPE, PUBLICSTATICSCOPE, PROTECTEDSCOPE, PROTECTEDSTATICSCOPE, PRIVATESCOPE, STATICSCOPE];
-		for (var i=0; i<list.length; ++i) {
-			var sName = list[i];
-			Object.setPrototypeOf(mixer[sName], Object.getPrototypeOf(scopes[sName]));
-			Object.setPrototypeOf(scopes[sName], mixer[sName]);
+			cloneAsLinks(obj, mixer[PROTECTEDSCOPE], mixer[PRIVATESCOPE]);
+			cloneAsLinks(obj, mixer[PUBLICSCOPE], mixer[PRIVATESCOPE]);
 		}
+		else
+			throw new ClassDefError("Only Objects and Functions can be mixed into a Class!", "Mixins");
 	}
+
+	//After all of that, now it's time to join the mixer to the scopes
+	var list = [PUBLICSCOPE, PUBLICSTATICSCOPE, PROTECTEDSCOPE, PROTECTEDSTATICSCOPE, PRIVATESCOPE, STATICSCOPE];
+	for (var i=0; i<list.length; ++i) {
+		var sName = list[i];
+		Object.setPrototypeOf(mixer[sName], Object.getPrototypeOf(scopes[sName]));
+		Object.setPrototypeOf(scopes[sName], mixer[sName]);
+	}
+
+	cloneAsLinks(scopes[PUBLICSCOPE], This.prototype, null);
+	Object.setPrototypeOf(This.prototype, Object.getPrototypeOf(scopes[PUBLICSCOPE]));
 }
 
 var Class = (function _Class() {
@@ -1100,6 +1043,9 @@ var Class = (function _Class() {
 
 		var scopes = createScopesContainer();
 		var retval = generateTypeConstructor(name, scopes);
+		scopes[STATICSCOPE].isStatic = true;
+		scopes[PRIVATESCOPE].isPrivate = true;
+		scopes[PUBLICSTATICSCOPE] = retval;
 
 		populateScopes(scopes, validateDefinitionKeys(definition));
 		generateMetaData(retval, name, definition, scopes);

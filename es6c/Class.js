@@ -1,7 +1,5 @@
 var PrivateMap = require('./PrivateMap');
 var Enum = require("../Enum");
-var Constructor = Symbol("constructor");
-var Initializer = Symbol("Initializer");
 /**
  * ClassModes - An enumeration of the inheritability of defined Class types.
  *
@@ -231,13 +229,20 @@ var Class = (function() {
         delete dupProto.constructor;
         //Get the private container for the base class        
         var inherit = privMap.get(Object.getPrototypeOf(c.prototype).constructor) || {};
+        if (inherit.modifier === ClassModes.Final)
+            throw new TypeError("Cannot extend a final class");
         //Create a new function that will serve as the outer instance constructor.
         var ctorObj = {}; //We'll set this later, but the new constuctor needs it.
         var retval = eval(`(function ${c.name}(...args) {
-            if (!(new.target || (this instanceof ctorObj.constructor))) {
+            var ctor = ctorObj.constructor;
+            var cInfo = privMap.get(ctorObj.class);
+            if (!(new.target || (this instanceof ctor))) {
                 throw new Error("Constructor ${c.name} requires 'new'");
             }
-            return ctorObj.constructor.apply(this, args) || this;
+            if (cInfo && (cInfo.modifier === ClassModes.Abstract)) {
+                throw new TypeError("Cannot instantiate an abstract class");
+            }
+            return ctor.apply(this, args) || this;
         })`);
 
         //Create the proxy handler, because we're making an inverse membrane
@@ -320,7 +325,7 @@ var Class = (function() {
 
         //Proxy the new constructor.
         retval = new Proxy(retval, Object.assign({[isProxy]: true}, handler));
-
+        ctorObj.class = retval;
         //Make PrivateMap aware of the new class
         privMap.initConstructor(retval);
         //Get the private container for the class
@@ -337,12 +342,10 @@ var Class = (function() {
 
         //Everything else we do needs to know about the private symbols
         with (protoData.privNames) with (protoData.staticPrivNames) {
-            /* Create a new function with the same name as the constructor to serve
-            * as the new constructor. Make sure [PrivateMap.DECLARATION] is copied
-            * if it exists. */
+            /* Modify the constructor and rebuild the class's prototype. */
             var result = eval(`(${fixClass(c, dupProto)})`);
             Object.setPrototypeOf(result, Object.getPrototypeOf(c.prototype));
-            
+
             //Set the internal constructor to the constructor we modified.
             ctorObj.constructor = result.constructor;
             //Set the prototype constructor to the constructor we'll return.
@@ -350,7 +353,7 @@ var Class = (function() {
             //Proxy the prototype object so we can manipulate private member usage
             ctorObj.constructor.prototype = new Proxy(result, Object.assign({[isProxy]: true}, handler));
             retval.prototype = ctorObj.constructor.prototype;
-
+            
             //Move the static members onto retval
             extend (retval, result.statics);
             delete result.statics;
@@ -371,31 +374,14 @@ var Class = (function() {
     return retval;
 })();
 
-var hasES6 = (function() { 
-	var retval = false;
-
-	try {
-		eval("(...args) => {};"); //If this throws, then no ES6.
-		retval = true;
-		console.warn("ES6 support detected. You might want to use the ES6 version!");
-	} catch(e) {};
-
-	return retval;
-})();
-
-if (hasES6) {
-	//Prevents older engines from throwing.
-	try {
-		eval("export default Class;");
-	} catch(e) {
-		try {
-			module.exports = Class;
-		}
-		catch(e) {
-			console.warn("No known means of exporting 'Class' namespace!");
-		}
-	}
-}
-else {
-	console.warn("No known means of exporting 'Class' namespace!");
+//Prevents older engines from throwing.
+try {
+    eval("export default Class;");
+} catch(e) {
+    try {
+        module.exports = Class;
+    }
+    catch(e) {
+        console.warn("No known means of exporting 'Class' namespace!");
+    }
 }

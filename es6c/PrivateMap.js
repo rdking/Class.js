@@ -14,6 +14,7 @@ module.exports = (function() {
         let privNames = {};
         let staticPrivNames = {};
         let staticProtNames = {};
+        let staticPubMembers = {};
         let staticData = {};
 
         delete ctorFn[DECLARATION];
@@ -81,7 +82,12 @@ module.exports = (function() {
                     }
                     break;
                 default:    //Public
-                    Object.defineProperty(proto, field, def);
+                    if (isStatic) {
+                        Object.defineProperty(staticPubMembers, field, def);
+                    }
+                    else {
+                        Object.defineProperty(proto, field, def);
+                    }
                     break;
             }
         }
@@ -93,6 +99,7 @@ module.exports = (function() {
             privProto: obj,
             staticPrivNames,
             staticProtNames,
+            staticPubMembers,
             staticData
         });
     }

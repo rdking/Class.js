@@ -338,6 +338,7 @@ var Class = (function() {
         Object.setPrototypeOf(protoData.privProto, inherit.privProto || {});
         Object.setPrototypeOf(protoData.staticPrivNames, inherit.staticPrivNames || {});
         Object.setPrototypeOf(protoData.staticProtNames, inherit.staticProtNames || {});
+        Object.setPrototypeOf(protoData.staticPubMembers, inherit.staticPubMembers || {});
         Object.setPrototypeOf(protoData.staticData, inherit.staticData || {});
 
         //Everything else we do needs to know about the private symbols
@@ -356,6 +357,7 @@ var Class = (function() {
             
             //Move the static members onto retval
             extend (retval, result.statics);
+            extend (retval, protoData.staticPubMembers);
             delete result.statics;
         }
 

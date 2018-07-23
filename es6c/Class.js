@@ -51,6 +51,25 @@ var Class = (function() {
 
         return retval;
     }
+
+    function makeLinks(obj) {
+        var keys = Object.getOwnPropertyNames(obj)
+                         .concat(Object.getOwnPropertySymbols(obj));
+        var retval = {};
+        
+        function getProperty(key) { return obj[key]; }
+        function setProperty(key, value) { obj[key] = value; }
+
+        for (let key of keys) {
+            Object.defineProperty(retval, key, {
+                enumerable: true,
+                get: getProperty.bind(undefined, key),
+                set: setProperty.bind(undefined, key)
+            });
+        }
+
+        return retval;
+    }
     
     function Super(...args) {
         var parentProto = Object.getPrototypeOf(Object.getPrototypeOf(this));
@@ -275,10 +294,10 @@ var Class = (function() {
                          (key === ProxyTarget)) {
                     retval = target
                 }
-                else if (protoData && (Object.values(protoData.privNames).indexOf(key) >= 0)) {
+                else if (protoData && (PrivateMap.values(protoData.privNames).indexOf(key) >= 0)) {
                     retval = privMap.getKey(receiver, key);
                 }
-                else if (protoData && (Object.values(protoData.staticPrivNames).indexOf(key) >= 0)) {
+                else if (protoData && (PrivateMap.values(protoData.staticPrivNames).indexOf(key) >= 0)) {
                     retval = privMap.getStaticKey(receiver, key);
                 }
                 else {
@@ -292,10 +311,10 @@ var Class = (function() {
             },
             set(target, key, value, receiver) {
                 var retval = true;
-                if (protoData && (Object.values(protoData.privNames).indexOf(key) >= 0)) {
+                if (protoData && (PrivateMap.values(protoData.privNames).indexOf(key) >= 0)) {
                     privMap.setKey(receiver, key, value);
                 }
-                else if (protoData && (Object.values(protoData.staticPrivNames).indexOf(key) >= 0)) {
+                else if (protoData && (PrivateMap.values(protoData.staticPrivNames).indexOf(key) >= 0)) {
                     privMap.setStaticKey(receiver, key, value);
                 }
                 else {
@@ -305,10 +324,10 @@ var Class = (function() {
             },
             has(target, key) {
                 var retval = true;
-                if (protoData && (Object.values(protoData.privNames).indexOf(key) >= 0)) {
+                if (protoData && (PrivateMap.values(protoData.privNames).indexOf(key) >= 0)) {
                     retval = privMap.hasKey(target, key);
                 }
-                else if (protoData && (Object.values(protoData.staticPrivNames).indexOf(key) >= 0)) {
+                else if (protoData && (PrivateMap.values(protoData.staticPrivNames).indexOf(key) >= 0)) {
                     retval = privMap.hasStaticKey(target, key);
                 }
                 else {
@@ -338,8 +357,8 @@ var Class = (function() {
         Object.setPrototypeOf(protoData.privProto, inherit.privProto || {});
         Object.setPrototypeOf(protoData.staticPrivNames, inherit.staticPrivNames || {});
         Object.setPrototypeOf(protoData.staticProtNames, inherit.staticProtNames || {});
-        Object.setPrototypeOf(protoData.staticPubMembers, inherit.staticPubMembers || {});
-        Object.setPrototypeOf(protoData.staticData, inherit.staticData || {});
+        Object.setPrototypeOf(protoData.staticPubMembers, makeLinks(inherit.staticPubMembers || {}));
+        Object.setPrototypeOf(protoData.staticData, makeLinks(inherit.staticData || {}));
 
         //Everything else we do needs to know about the private symbols
         with (protoData.privNames) with (protoData.staticPrivNames) {

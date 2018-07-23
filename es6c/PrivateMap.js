@@ -186,6 +186,9 @@ module.exports = (function() {
             return this.validate(object, key, true, true);
         }
     };
-    Object.defineProperty(retval, "DECLARATION", { value: DECLARATION });
+    Object.defineProperties(retval, {
+        "DECLARATION": { value: DECLARATION },
+        values: { value: values }
+    });
     return retval;
 })();

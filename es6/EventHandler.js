@@ -2,8 +2,8 @@ var Class = require("./Class");
 
 var EventHandler = new Class(
     {
-        [`private listeners`]: null,
-        [`private addListener`](evnt, fn, once, related){
+        listeners: null,
+        addListener(evnt, fn, once, related){
             if (this.listeners == null)
                 this.listeners = {};
 
@@ -16,7 +16,7 @@ var EventHandler = new Class(
             else
                 throw TypeError("Only functions can be event handlers!");		
         },
-        [`private removeRelatives`](relatives) {
+        removeRelatives(relatives) {
             if (Array.isArray(relatives) || (relatives instanceof Array)) {
                 for (var i=0; i<relatives.length; ++i) {
                     var relative = relatives[i];
@@ -24,13 +24,13 @@ var EventHandler = new Class(
                 }
             }
         },
-        [`protected deferCall`](fn, params) {
+        deferCall(fn, params) {
             setTimeout(this.Delegate(function runDeferredCall() {
                 fn.apply(undefined, params);
             }), 0);
         }
     },
-    [],
+    [ "deferCall" ],
     class EventHandler {
         addEventListener(evnt, fn, related) {
             this.addListener(evnt, fn, false, related);

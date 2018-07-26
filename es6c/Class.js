@@ -219,6 +219,9 @@ var Class = (function() {
                     let rValue = value.replace(/([\[\]\{\}\(\)\?\*\+\\])/mg, "\\$1");
                     let tester = new RegExp(`\\[(["'\\\`])${rDKey}\\1\\]\\s*:\\s*${rValue}`, "m");
                     let colon = ((["get","set","value"].indexOf(dKey) === -1) || tester.test(cString))? ': ' : '';
+                    if (!(/^function/.test(value) || /\)\s*=>\s*\{/.test(value))) {
+                        value = "function " + value;
+                    }
                     retval += `${(first)? '' : ','}\n\t\t\t${dKey}${colon}${value}`;
                     first = false;
                 }

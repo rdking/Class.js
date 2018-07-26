@@ -125,6 +125,10 @@ var Class = (function() {
                 }
             }
 
+            if (endIndex === retval.length) { //Remove the end of class brace if we found no other fn's
+                retval = retval.substring(0, retval.lastIndexOf("}", endIndex));
+            }
+
             endIndex = retval.lastIndexOf("}", endIndex) + 1;
             retval = retval.substr(0, endIndex);
         }

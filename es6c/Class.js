@@ -196,7 +196,8 @@ var Class = (function() {
 
         let cKeys = Object.getOwnPropertyNames(c)
                           .concat(Object.getOwnPropertySymbols(c))
-                          .filter((element) => !(element in retval.constructor));
+                          .filter((element) => !(element in retval.constructor) &&
+                                                (element !== PrivateMap.DECLARATION));
         if (cKeys.length) {
             let cString = (c[ProxyTarget] || c).toString();
             retval += ',\n\tstatics: {';

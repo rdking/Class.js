@@ -74,28 +74,8 @@ var Class = (function() {
     function Super(...args) {
         var parentProto = Object.getPrototypeOf(Object.getPrototypeOf(this));
         var parent = parentProto.constructor;
-        var nativeBase = findNativeBase(parent);
-        var retval;
-
-        if ((nativeBase === parent) && (parent !== Object)) {
-            retval = new parent(...args);
-        }
-        else if (parent === Object) {
-            retval = this;
-        }
-        else {
-            let pseudoThis = Object.assign(Object.create(parentProto), {[This]: this[This]});
-            retval = parent.apply(pseudoThis, args) || this[This] || this;
-            extend(retval, pseudoThis);
-        }
-
-        if (!!nativeBase && (parent !== Object)) {
-            Object.setPrototypeOf(retval, Object.getPrototypeOf(this));
-            Object.setPrototypeOf(this, Object.prototype);
-            extend(retval, this);
-            Object.setPrototypeOf(this, Object.getPrototypeOf(retval));
-        }
-
+        var retval = Reflect.construct(parent, args, parent);
+        Object.setPrototypeOf(retval, Object.getPrototypeOf(this));
         return retval;
     }
 
@@ -105,9 +85,7 @@ var Class = (function() {
         var regex = /\Wconstructor\s*\(([^]*?)\)\s*\{([^]+\})/;
         var index = cString.search(regex);
         var matches = cString.match(regex);
-        var retval = `function ${c.name}() {
-            return privMap.init(Super.call(this));
-        }`;
+        var retval = `function ${c.name}() { return privMap.init(Super.call(this)); }`;
         
         if (index > -1) {
             let keys = Object.getOwnPropertyNames(cProto)
@@ -136,6 +114,11 @@ var Class = (function() {
         if (/\ssuper\(/.test(retval)) {
             retval = retval.replace(/this(\W)/mg, "retval$1")
                            .replace(/(\s)super\(([^;]*)\);/m, `$1var retval = privMap.init(Super.call(this, $2));`)
+                           .replace(/\}$/, "\t\treturn retval;\n\t}");
+        }
+        else if (index > -1) {
+            retval = retval.replace(/this(\W)/mg, "retval$1")
+                           .replace(/((?:\W)constructor\s+\((?:\w+(?:\s*,\s*\w+)*)?\)\s*\{(\s+))/m, `$1var retval = privMap.init(Super.call(this));$2`)
                            .replace(/\}$/, "\t\treturn retval;\n\t}");
         }
         return retval;        

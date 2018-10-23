@@ -12,6 +12,52 @@ Object.defineProperty(Symbol, "inherit",  { value: Symbol() });
  * @returns {function} - a function that acts as the class constructor.
  */
 module.exports = function Class(def) {
+	const inheritanceField = `${def.name}-Inheritance`;
+	/**
+	 * Puts the non-private static members of this class on a derived class.
+	 * @param {function} base - Should be the base class being derived from.
+	 * @param {Symbol} flag - Should be <classname>[inheritanceField].
+	 * @param {function} subClass - Should be the derived class being created.
+	 * @returns {boolean} - a true/false flag telling whether or not derived
+	 * class creation was detected.
+	 */
+	function isStaticInheritance(base, flag, subClass) {
+		var retval = false;
+		if ((flag === base[inheritanceField]) &&
+			(typeof(subClass) == "function") &&
+			(subClass.prototype instanceof base)) {
+			subClass[base[inheritanceField]] = pvt.get(base.prototype).static;
+			retval = true;
+		}
+		return retval;
+	}
+
+	/**
+	 * Migrates inheritance from base into the prototype of container.
+	 * @param {object} obj - the object hosting the inheritance data.
+	 * @param {function} base - the constructor of the base class.
+	 * @param {object} container - the private container for this class.
+	 * @param {boolean} wantStatic - a flag to determine which fields to inherit.
+	 */
+	function getInheritance(obj, base, container, wantStatic) {
+		if (obj[base[inheritanceField]]) {
+			let group = (!!wantStatic) ? 'static' : 'nonStatic';
+			let inheritable = obj[base[inheritanceField]][group];
+			let inheritKeys = Object.getOwnPropertyNames(inheritable);
+
+			//Copy the inheritables into our inheritance.
+			for (let key of inheritKeys) {
+				Object.defineProperty(container, key, Object.getOwnPropertyDescriptor(inheritable, key));
+			}
+
+			if (!wantStatic) {
+				delete obj[base[inheritanceField]];
+			}
+		}
+
+		return container;
+	}
+
 	var handler = {
 		getInheritance: def[Symbol.inherit] || (() => new Object()),
 		slots: new WeakMap(),

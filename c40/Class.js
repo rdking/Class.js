@@ -60,6 +60,7 @@ module.exports = function Class(def) {
 
 	var handler = {
 		proxy: Symbol(),
+		owner: Symbol(),
 		getInheritance: def[Symbol.inherit] || (() => new Object()),
 		slots: new WeakMap(),
 		construct(target, args, newTarget) {
@@ -69,6 +70,7 @@ module.exports = function Class(def) {
 			 */
 			var instance = Reflect.construct(target, args, {
 				prototype: new Proxy({
+					[handler.owner]: instance,
 					__proto__: newTarget.prototype
 				}, handler)
 			});
@@ -84,27 +86,37 @@ module.exports = function Class(def) {
 		},
 		get(target, prop, receiver) {
 			var retval;
-			if (!handler.slots.has(target)) {
-				handler.initPrivate(target);
+			var inst = target;
+			if (handler.owner in target) {
+				inst = target[handler.owner];
 			}
-			if (prop in target) {
-				retval = Reflect.get(target, prop, receiver);
+
+			if (!handler.slots.has(inst)) {
+				handler.initPrivate(inst);
+			}
+			if (prop in inst) {
+				retval = Reflect.get(inst, prop, receiver);
 			}
 			else {
-				retval = handler.get(target)[prop];
+				retval = handler.get(inst)[prop];
 			}
 			return retval;
 		},
 		set(target, prop, value, receiver) {
 			var retval = false;
-			if (!handler.slots.has(target)) {
-				handler.initPrivate(target);
+			var inst = target;
+			if (handler.owner in target) {
+				inst = target[handler.owner];
 			}
-			if (prop in target) {
-				retval = Reflect.get(target, prop, value, receiver);
+
+			if (!handler.slots.has(inst)) {
+				handler.initPrivate(inst);
+			}
+			if (prop in inst) {
+				retval = Reflect.get(inst, prop, value, receiver);
 			}
 			else {
-				handler.get(target)[prop] = value;
+				handler.get(inst)[prop] = value;
 				retval = true;
 			}
 			return retval;

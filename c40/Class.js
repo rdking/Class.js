@@ -59,19 +59,63 @@ module.exports = function Class(def) {
 	}
 
 	var handler = {
+		proxy: Symbol(),
 		getInheritance: def[Symbol.inherit] || (() => new Object()),
 		slots: new WeakMap(),
-	};
-	var pDef = (new Proxy(def, {
 		construct(target, args, newTarget) {
-			var retval = Reflect.construct(target, args, newTarget);
+			/* This is a sneaky trick. By sending 'new' a proxied prototype
+			 * via newTarget, I can catch any attempt to access private 
+			 * properties and provide them.
+			 */
+			var instance = Reflect.construct(target, args, {
+				prototype: new Proxy({
+					__proto__: newTarget.prototype
+				}, handler)
+			});
+			var retval = new Proxy(instance, handler);
+			handler.slots.set(retval, instance);
+			if (handler.slots.has(instance)) {
+				handler.slots.get(instance)[handler.proxy] = retval;
+			}
+			else {
+				handler.initPrivate(instance);
+			}
 			return retval;
-		}
-	}));
-	var retval = Object.assign(function () {
+		},
+		get(target, prop, receiver) {
+			var retval;
+			if (!handler.slots.has(target)) {
+				handler.initPrivate(target);
+			}
+			if (prop in target) {
+				retval = Reflect.get(target, prop, receiver);
+			}
+			else {
+				retval = handler.get(target)[prop];
+			}
+			return retval;
+		},
+		set(target, prop, value, receiver) {
+			var retval = false;
+			if (!handler.slots.has(target)) {
+				handler.initPrivate(target);
+			}
+			if (prop in target) {
+				retval = Reflect.get(target, prop, value, receiver);
+			}
+			else {
+				handler.get(target)[prop] = value;
+				retval = true;
+			}
+			return retval;
+		},
+		apply(target, thisArg, args) {}
+	};
+	var pDef = new Proxy(def, handler);
+	var _class = Object.assign(function () {
 		var retval = new pDef();	
 		var proto = Object.getPrototypeOf(retval);
-		Object.setPrototypeOf(proto, new Proxy(proto, handler));
+		Object.setPrototypeOf(retval, new Proxy(proto, handler));
 		return retval;
 	}, {
 		name: def.name,
@@ -79,8 +123,8 @@ module.exports = function Class(def) {
 		toString() { return def.toString(); }
 	});
 
-	Object.defineProperty(retval, Symbol.inherit, { value: Symbol(`${def.name}-Inheritance`) });
-	Object.defineProperty(retval, retval[Symbol.inherit], {})
+	Object.defineProperty(_class, Symbol.inherit, { value: Symbol(`${def.name}-Inheritance`) });
+	Object.defineProperty(_class, _class[Symbol.inherit], {})
 };
 
 Object.defineProperties(module.exports, {

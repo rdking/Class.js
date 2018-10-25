@@ -3,8 +3,8 @@
  * a. define the key where the name of the inheritance data field will be stored, and
  * b. define the key where a function containing the data definition can be found.
  */
-Object.defineProperty(Symbol, "inherit",  { value: Symbol() });
-Object.defineProperty(Symbol, "classData",  { value: Symbol() });
+Object.defineProperty(Symbol, "inherit",  { value: Symbol('Class::inherit') });
+Object.defineProperty(Symbol, "classData",  { value: Symbol('Class::classData') });
 
 /**
  * Creates a wrapped class definition to allow for the use of private and protected
@@ -80,7 +80,7 @@ module.exports = function Class(def) {
 		return container;
 	}
 
-	function processInheritables(desc, owner, construct) {
+	function processInheritables(target, desc, pDest, construct) {
 		var pvt = {
 			[handler.proxy]: null,
 			proto: {},
@@ -126,17 +126,20 @@ module.exports = function Class(def) {
 				pvt.shared[dest].push(key);
 			}
 			if (!descriptor.private) {
-				Object.defineProperty(owner, key, descriptor);
+				if (descriptor.static)
+					Object.defineProperty(pDest.constructor, key, descriptor);
+				else
+					Object.defineProperty(pDest, key, descriptor);
 			}
 			else if (construct) {
 				Object.defineProperty(pvt[dest], key, descriptor);
 			}
 		}
 
+		handler.slots.set(target, pvt);
 	}
 
-	const getInheritance = (def[Symbol.inherit] || (() => new Object())).bind(def);
-	processInheritables(getInheritance(), def.prototype, true);
+	const getInheritables = (def[Symbol.classData] || (() => new Object())).bind(def);
 
 	var handler = {
 		proxy: Symbol(),
@@ -147,17 +150,18 @@ module.exports = function Class(def) {
 			 * via newTarget, I can catch attempts to access private properties
 			 * and provide them.
 			 */
+			var prototype = newTarget.prototype;
 			var pseudoNT = {
 				[handler.owner]: instance,
-				__proto__: newTarget.prototype
+				__proto__: prototype
 			};
-			handler.slots.set(pseudoNT, processInheritables(getInheritance(), newTarget.prototype, true));
+			handler.slots.set(pseudoNT, processInheritables(pseudoNT, getInheritables(), prototype, true));
 			var instance = Reflect.construct(target, args, {
-				prototype: ntProxy
+				prototype: new Proxy(pseudoNT, handler)
 			});
 			var retval = new Proxy(instance, handler);
 			//We're done snooping around. Put the original prototype back.
-			Object.setPrototypeOf(retval, newTarget.prototype);
+			Object.setPrototypeOf(retval, prototype);
 			//Make sure we can map back and forth from Proxy to target at will.
 			handler.slots.set(retval, instance);
 			handler.slots.set(instance, handler.slots.get(ntProxy));
@@ -167,13 +171,13 @@ module.exports = function Class(def) {
 		get(target, prop, receiver) {
 			var retval;
 			var inst = target;
-			if (handler.owner in target) {
-				inst = target[handler.owner];
-			}
+			// if (handler.owner in target) {
+			// 	inst = target[handler.owner];
+			// }
 
-			if (!handler.slots.has(inst)) {
-				handler.initPrivate(inst);
-			}
+			// if (!handler.slots.has(inst)) {
+			// 	handler.initPrivate(inst);
+			// }
 			if (prop in inst) {
 				retval = Reflect.get(inst, prop, receiver);
 			}
@@ -185,13 +189,13 @@ module.exports = function Class(def) {
 		set(target, prop, value, receiver) {
 			var retval = false;
 			var inst = target;
-			if (handler.owner in target) {
-				inst = target[handler.owner];
-			}
+			// if (handler.owner in target) {
+			// 	inst = target[handler.owner];
+			// }
 
-			if (!handler.slots.has(inst)) {
-				handler.initPrivate(inst);
-			}
+			// if (!handler.slots.has(inst)) {
+			// 	handler.initPrivate(inst);
+			// }
 			if (prop in inst) {
 				retval = Reflect.get(inst, prop, value, receiver);
 			}
@@ -203,22 +207,26 @@ module.exports = function Class(def) {
 		},
 		apply(target, thisArg, args) {}
 	};
+
+	processInheritables(def.prototype, getInheritables(), def.prototype);
+
 	var pDef = new Proxy(def, handler);
-	var _class = Object.assign(function () {
+	var _class = function () {
 		var retval = new pDef();	
 		var proto = Object.getPrototypeOf(retval);
 		Object.setPrototypeOf(retval, new Proxy(proto, handler));
 		return retval;
-	}, {
-		name: def.name,
-		length: def.length,
-		toString() { return def.toString(); }
+	};
+
+	Object.defineProperties(_class, {
+		constructor: { value: _class },
+		prototype: { value: def.prototype },
+		name: { value: def.name},
+		length: { value: def.length },
+		toString: { value: function toString() { return def.toString(); } },
+		[Symbol.inherit]: { value: Symbol(`${def.name}-Inheritance`) }
 	});
+	Object.defineProperty(_class, _class[Symbol.inherit], { value : {} });
 
-	Object.defineProperty(_class, Symbol.inherit, { value: Symbol(`${def.name}-Inheritance`) });
-	Object.defineProperty(_class, _class[Symbol.inherit], {})
+	return _class;
 };
-
-Object.defineProperties(module.exports, {
-
-});

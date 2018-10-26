@@ -59,6 +59,21 @@ var Test = Class(class Test {
 			field6: "data"
 		};
 	}
+
+	constructor() {
+		//We need to know if private members are visible here...
+		var a = this.field2;
+		assert(a == "data");
+		console.log(`field2 = ${this.field2}`);	
+		console.log(`field3 = ${this.field3}`);	
+		console.log(`field4 = ${this.field4}`);	
+		console.log(`field5 = ${this.field5}`);	
+		console.log(`field6 = ${this.field6}`);	
+		console.log(`method1 = ${this.method1}`);	
+		console.log(`method2 = ${this.method2}`);	
+		console.log(`method3 = ${this.method3}`);	
+		console.log(`method4 = ${this.method4}`);	
+	}
 });
 
 console.log(`Test = ${JSON.stringify(Test, withFn, '   ')}`);

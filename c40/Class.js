@@ -145,6 +145,7 @@ module.exports = function Class(def) {
 		proxy: Symbol('handler.proxy'),
 		owner: Symbol('handler.owner'),
 		slots: new WeakMap(),
+		pseudoNT: null,
 		canAccessPrivate() {
 			return true;
 		},
@@ -154,20 +155,21 @@ module.exports = function Class(def) {
 			 * and provide them.
 			 */
 			var prototype = newTarget.prototype;
-			var pseudoNT = function() {};
-			pseudoNT.prototype = {
+			this.pseudoNT = function() {};
+			this.pseudoNT.prototype = new Proxy({
 				[handler.owner]: instance,
 				__proto__: prototype
-			};
-			processInheritables(pseudoNT, getInheritables(), prototype, true);
-			var instance = Reflect.construct(target, args, pseudoNT);
+			}, handler);
+			processInheritables(this.pseudoNT, getInheritables(), prototype, true);
+			var instance = Reflect.construct(target, args, this.pseudoNT);
 			var retval = new Proxy(instance, handler);
 			//We're done snooping around. Put the original prototype back.
 			Object.setPrototypeOf(retval, prototype);
 			//Make sure we can map back and forth from Proxy to target at will.
 			handler.slots.set(retval, instance);
-			handler.slots.set(instance, handler.slots.get(pseudoNT));
+			handler.slots.set(instance, handler.slots.get(this.pseudoNT));
 			handler.slots.get(instance)[handler.proxy] = retval;
+			this.pseudoNT = null
 			return retval;
 		},
 		get(target, prop, receiver) {
@@ -178,7 +180,7 @@ module.exports = function Class(def) {
 				retval = Reflect.get(target, prop, receiver);
 			}
 			else {	//Private properties next....
-				let priv = handler.slots.get(target);
+				let priv = handler.slots.get((this.pseudoNT) ? this.pseudoNT : target);
 				if (this.canAccessPrivate(target) && priv.hasOwnProperty(prop)) {
 					retval = priv[prop];
 				}
@@ -196,7 +198,7 @@ module.exports = function Class(def) {
 				retval = Reflect.set(target, prop, value, receiver);
 			}
 			else {	//Private properties next....
-				let priv = handler.slots.get(target);
+				let priv = handler.slots.get((this.pseudoNT) ? this.pseudoNT : target);
 				if (this.canAccessPrivate(target) && priv.hasOwnProperty(prop)) {
 					priv[prop] = value;
 					retval = true;

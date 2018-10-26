@@ -64,3 +64,4 @@ var Test = Class(class Test {
 console.log(`Test = ${JSON.stringify(Test, withFn, '   ')}`);
 
 var test = new Test();
+console.log(`test = ${JSON.stringify(test, withFn, '   ')}`);

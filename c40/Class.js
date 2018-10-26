@@ -142,70 +142,71 @@ module.exports = function Class(def) {
 	const getInheritables = (def[Symbol.classData] || (() => new Object())).bind(def);
 
 	var handler = {
-		proxy: Symbol(),
-		owner: Symbol(),
+		proxy: Symbol('handler.proxy'),
+		owner: Symbol('handler.owner'),
 		slots: new WeakMap(),
+		canAccessPrivate() {
+			return true;
+		},
 		construct(target, args, newTarget) {
 			/* This is a sneaky trick. By sending newly a proxied prototype
 			 * via newTarget, I can catch attempts to access private properties
 			 * and provide them.
 			 */
 			var prototype = newTarget.prototype;
-			var pseudoNT = {
+			var pseudoNT = function() {};
+			pseudoNT.prototype = {
 				[handler.owner]: instance,
 				__proto__: prototype
 			};
-			handler.slots.set(pseudoNT, processInheritables(pseudoNT, getInheritables(), prototype, true));
-			var instance = Reflect.construct(target, args, {
-				prototype: new Proxy(pseudoNT, handler)
-			});
+			processInheritables(pseudoNT, getInheritables(), prototype, true);
+			var instance = Reflect.construct(target, args, pseudoNT);
 			var retval = new Proxy(instance, handler);
 			//We're done snooping around. Put the original prototype back.
 			Object.setPrototypeOf(retval, prototype);
 			//Make sure we can map back and forth from Proxy to target at will.
 			handler.slots.set(retval, instance);
-			handler.slots.set(instance, handler.slots.get(ntProxy));
+			handler.slots.set(instance, handler.slots.get(pseudoNT));
 			handler.slots.get(instance)[handler.proxy] = retval;
 			return retval;
 		},
 		get(target, prop, receiver) {
 			var retval;
-			var inst = target;
-			// if (handler.owner in target) {
-			// 	inst = target[handler.owner];
-			// }
 
-			// if (!handler.slots.has(inst)) {
-			// 	handler.initPrivate(inst);
-			// }
-			if (prop in inst) {
-				retval = Reflect.get(inst, prop, receiver);
+			//Own properties come first...
+			if (target.hasOwnProperty(prop)) {
+				retval = Reflect.get(target, prop, receiver);
 			}
-			else {
-				retval = handler.get(inst)[prop];
+			else {	//Private properties next....
+				let priv = handler.slots.get(target);
+				if (this.canAccessPrivate(target) && priv.hasOwnProperty(prop)) {
+					retval = priv[prop];
+				}
+				else {	//Do the default in every other case
+					retval = Reflect.get(target, prop, receiver);
+				}
 			}
 			return retval;
 		},
 		set(target, prop, value, receiver) {
-			var retval = false;
-			var inst = target;
-			// if (handler.owner in target) {
-			// 	inst = target[handler.owner];
-			// }
+			var retval;
 
-			// if (!handler.slots.has(inst)) {
-			// 	handler.initPrivate(inst);
-			// }
-			if (prop in inst) {
-				retval = Reflect.get(inst, prop, value, receiver);
+			//Own properties come first...
+			if (target.hasOwnProperty(prop)) {
+				retval = Reflect.set(target, prop, value, receiver);
 			}
-			else {
-				handler.get(inst)[prop] = value;
-				retval = true;
+			else {	//Private properties next....
+				let priv = handler.slots.get(target);
+				if (this.canAccessPrivate(target) && priv.hasOwnProperty(prop)) {
+					priv[prop] = value;
+					retval = true;
+				}
+				else {	//Do the default in every other case
+					retval = Reflect.set(target, prop, value, receiver);
+				}
 			}
 			return retval;
-		},
-		apply(target, thisArg, args) {}
+		}
 	};
 
 	processInheritables(def.prototype, getInheritables(), def.prototype);

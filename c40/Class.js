@@ -5,6 +5,7 @@
  */
 Object.defineProperty(Symbol, "inherit",  { value: Symbol('Class::inherit') });
 Object.defineProperty(Symbol, "classData",  { value: Symbol('Class::classData') });
+Object.defineProperty(Symbol, "signature", { value: Symbol('Class::signature') });
 
 /**
  * Creates a wrapped class definition to allow for the use of private and protected
@@ -35,6 +36,8 @@ Object.defineProperty(Symbol, "classData",  { value: Symbol('Class::classData') 
  */
 module.exports = function Class(def) {
 	const inheritanceField = `${def.name}-Inheritance`;
+	const signature = Symbol(`${def.name}-Signature`);
+
 	/**
 	 * Puts the non-private static members of this class on a derived class.
 	 * @param {function} base - Should be the base class being derived from.
@@ -82,7 +85,6 @@ module.exports = function Class(def) {
 
 	function processInheritables(target, desc, pDest, construct) {
 		var pvt = {
-			[handler.proxy]: null,
 			proto: {},
 			ctor: {},
 			shared: {
@@ -139,37 +141,117 @@ module.exports = function Class(def) {
 		handler.slots.set(target, pvt);
 	}
 
+	function getPrivates(pvt, key) {
+		var retval = {};
+		Object.assign(retval, pvt[key]);
+		Object.assign(retval, { [Symbol.inherit]: pvt.shared[key] });
+		return retval;
+	}
+
+    function getStackTrace() {
+        var retval = {};
+        if (Error.hasOwnProperty("prepareStackTrace")) {
+            let original = Error.prepareStackTrace;
+            function prepareStackTrace(err, trace) {
+                var retval;
+
+                err.stackTrace = trace;
+                if (typeof(original) == "function") {
+                    retval = original.bind(Error)(err, trace);
+                    Error.prepareStackTrace = original;
+                }
+
+                return retval;
+            }
+            Error.prepareStackTrace = prepareStackTrace;
+            ({ stack: retval.stack, stackTrace: retval.stackTrace } = new Error());
+        }
+        else {
+            retval.stack = (new Error()).stack;
+        }
+
+        return retval;
+	}
+	
+	function getRequestingFnSignature() {
+		//This only exists because Function.caller has been deprecated.
+		//It's only approximate and can be spoofed under the right conditions.
+		var retval;
+		if (handler.fnStack.length) {
+			let err = getStackTrace();
+			let currentFn = handler.fnStack[0].target;
+			if (err.stackTrace) {
+				let frame = err.stackTrace[4];
+				let frameFn = (frame) ? frame.getFunction() : undefined;
+				let frameFnName = frame.getFunctionName();
+				if (((typeof(frameFn) == "function") && (frameFn === currentFn)) || 
+					(frameFnName == currentFn.name) ||
+					((currentFn.name.length === 0) &&
+					 (/<anonymous>/.test(frameFnName)))) {
+					retval = currentFn[Symbol.signature];
+				}
+			}
+			else {
+				try {
+					let frame = err.stack.split('\n')[5];
+					let regex = new RegExp(`${currentFn.name || "<anonymous>"}`);
+					if (regex.test(frame))
+						retval = currentFn[Symbol.signature];
+				}
+				catch(e) { /* Do Nothing! */ }
+			}
+		}
+		return retval;
+	}
+
 	const getInheritables = (def[Symbol.classData] || (() => new Object())).bind(def);
 
 	var handler = {
 		proxy: Symbol('handler.proxy'),
 		owner: Symbol('handler.owner'),
 		slots: new WeakMap(),
+		fnStack: [],
 		pseudoNT: null,
-		canAccessPrivate() {
-			return true;
+		canAccessPrivate(target) {
+			var retval = this.slots.has(target);
+			if (retval) {
+				let sig = getRequestingFnSignature();
+				retval = (sig === target[Symbol.signature]);
+			}
+			return retval;
 		},
 		construct(target, args, newTarget) {
 			/* This is a sneaky trick. By sending newly a proxied prototype
 			 * via newTarget, I can catch attempts to access private properties
 			 * and provide them.
 			 */
+			this.fnStack.unshift(target);
 			var prototype = newTarget.prototype;
 			this.pseudoNT = function() {};
+			this.pseudoNT[Symbol.signature] = target[Symbol.signature];
 			this.pseudoNT.prototype = new Proxy({
-				[handler.owner]: instance,
+				[Symbol.signature]: target[Symbol.signature],
+				[this.owner]: instance,
 				__proto__: prototype
 			}, handler);
 			processInheritables(this.pseudoNT, getInheritables(), prototype, true);
+			let map = this.slots;
+			let pvt = map.get(this.pseudoNT);
+			map.set(newTarget, target);
+			map.set(target, getPrivates(pvt, 'ctor'));
+			map.get(target)[this.proxy] = newTarget;
 			var instance = Reflect.construct(target, args, this.pseudoNT);
 			var retval = new Proxy(instance, handler);
+			instance[Symbol.signature] = target[Symbol.signature];
 			//We're done snooping around. Put the original prototype back.
 			Object.setPrototypeOf(retval, prototype);
-			//Make sure we can map back and forth from Proxy to target at will.
-			handler.slots.set(retval, instance);
-			handler.slots.set(instance, handler.slots.get(this.pseudoNT));
-			handler.slots.get(instance)[handler.proxy] = retval;
-			this.pseudoNT = null
+			//Make sure we can map back and forth from Proxy to target or constructor at will.
+			map.set(retval, instance);
+			map.set(instance, getPrivates(pvt, 'proto'));
+			map.get(instance)[this.proxy] = retval;
+			map.delete(this.pseudoNT);
+			this.pseudoNT = null;
+			this.fnStack.unshift();
 			return retval;
 		},
 		get(target, prop, receiver) {
@@ -180,14 +262,23 @@ module.exports = function Class(def) {
 				retval = Reflect.get(target, prop, receiver);
 			}
 			else {	//Private properties next....
-				let priv = handler.slots.get((this.pseudoNT) ? this.pseudoNT : target);
+				let priv = this.slots.get(target) || getPrivates(this.slots.get(this.pseudoNT), 'proto');
 				if (this.canAccessPrivate(target) && priv.hasOwnProperty(prop)) {
 					retval = priv[prop];
 				}
 				else {	//Do the default in every other case
 					retval = Reflect.get(target, prop, receiver);
+					//We need to return the proxy if it's a constructor request
+					if ((prop == "constructor") && this.slots.has(retval)) {
+						retval = this.slots.get(retval)[this.proxy];
+					}
 				}
 			}
+
+			if ((typeof(retval) == "function") && (Object.getPrototypeOf(target)[prop] === retval)) {
+				retval = new Proxy(retval, handler);
+			}
+
 			return retval;
 		},
 		set(target, prop, value, receiver) {
@@ -208,10 +299,24 @@ module.exports = function Class(def) {
 				}
 			}
 			return retval;
+		},
+		apply(target, context, args) {
+			var branded = (target[Symbol.signature] === context[Symbol.signature])
+			branded && this.fnStack.unshift({ target, context });
+			var retval = Reflect.apply(target, context, args);
+			branded && this.fnStack.shift();
+			return retval;
 		}
 	};
 
 	processInheritables(def.prototype, getInheritables(), def.prototype);
+
+	var keys = Object.getOwnPropertyNames(def.prototype).concat(Object.getOwnPropertySymbols(def.prototype));
+	for (let key of keys) {
+		if (typeof(def.prototype[key]) == "function") {
+			Object.defineProperty(def.prototype[key], Symbol.signature, { value: signature });
+		}
+	}
 
 	var pDef = new Proxy(def, handler);
 	var _class = function () {

@@ -61,18 +61,26 @@ var Test = Class(class Test {
 	}
 
 	constructor() {
+		this.print();
+	}
+
+	change() {
+		this.field2 = ~~(Math.random() * 1000);
+		this.print();
+	}
+
+	print() {
 		//We need to know if private members are visible here...
-		var a = this.field2;
-		assert(a == "data");
+		console.log(`field1 = ${this.constructor.field1}`);	
 		console.log(`field2 = ${this.field2}`);	
-		console.log(`field3 = ${this.field3}`);	
+		console.log(`field3 = ${this.constructor.field3}`);	
 		console.log(`field4 = ${this.field4}`);	
-		console.log(`field5 = ${this.field5}`);	
+		console.log(`field5 = ${this.constructor.field5}`);	
 		console.log(`field6 = ${this.field6}`);	
-		console.log(`method1 = ${this.method1}`);	
+		console.log(`method1 = ${this.constructor.method1}`);	
 		console.log(`method2 = ${this.method2}`);	
-		console.log(`method3 = ${this.method3}`);	
-		console.log(`method4 = ${this.method4}`);	
+		console.log(`method3 = ${this.constructor.method3}`);	
+		console.log(`method4 = ${this.method4}\n\n`);	
 	}
 });
 
@@ -80,3 +88,6 @@ console.log(`Test = ${JSON.stringify(Test, withFn, '   ')}`);
 
 var test = new Test();
 console.log(`test = ${JSON.stringify(test, withFn, '   ')}`);
+
+test.change();
+console.log(`this.field2 = ${test.field2}`);

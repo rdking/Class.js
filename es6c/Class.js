@@ -363,8 +363,18 @@ var Class = (function() {
         //Everything else we do needs to know about the private symbols
         with (protoData.privNames) with (protoData.staticPrivNames) {
             /* Modify the constructor and rebuild the class's prototype. */
-            var result = eval(`(${fixClass(c, dupProto)})`);
+            let result = eval(`(${fixClass(c, dupProto)})`);
             Object.setPrototypeOf(result, Object.getPrototypeOf(c.prototype));
+
+            //Re-process the functions in protoData so they're aware of private names...
+            let defs = Object.getOwnPropertyDescriptors(protoData)
+            for (let key in defs) {
+                let def = defs[key];
+
+                if (("value" in def) && (typeof(def.value) == "function")) {
+                    def.value = eval(`(${def.value.toString()})`);
+                }
+            }
 
             //Set the internal constructor to the constructor we modified.
             ctorObj.constructor = result.constructor;

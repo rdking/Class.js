@@ -1,3 +1,4 @@
+var assert = require('assert');
 var Class = require("../Class");
 
 function withFn(key, val) {

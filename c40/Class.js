@@ -262,8 +262,9 @@ module.exports = function Class(def) {
 				retval = Reflect.get(target, prop, receiver);
 			}
 			else {	//Private properties next....
-				let priv = this.slots.get(target) || getPrivates(this.slots.get(this.pseudoNT), 'proto');
-				if (this.canAccessPrivate(target) && priv.hasOwnProperty(prop)) {
+				let priv = this.slots.get(target);
+				if (!priv) || getPrivates(this.slots.get(this.pseudoNT), 'proto');
+				if (this.canAccessPrivate(p) && priv.hasOwnProperty(prop)) {
 					retval = priv[prop];
 				}
 				else {	//Do the default in every other case

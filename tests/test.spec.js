@@ -156,7 +156,7 @@ describe('Testing ES5-version Class.js...', () => {
 						describe('Constructor', () => {
 							var self = this;
 							it('should have access to a SuperClass instance called "this"', () => {
-								self.should.be.instanceOf(SuperClass);
+								self.Self.should.be.instanceOf(SuperClass);
 							})
 						})
 					}),
@@ -176,9 +176,6 @@ describe('Testing ES5-version Class.js...', () => {
 					staticTest2: Public(Static(function staticTest2() {
 						describe('Testing inside "SuperClass"', () => {
 							describe('<Static Scope>', () => {
-								it('should be the static scope', () => {
-									this.should.have.property('isStatic');
-								});
 								it('should not have a property called "private1"', () => {
 									this.should.not.have.property('private1');
 								});
@@ -321,13 +318,13 @@ describe('Testing ES5-version Class.js...', () => {
 					}),
 					scPublicStatic: Public(Static("test")),
 					Constructor: Public(function createSubClassInstance(noTest) {
+						var self = this;
 						if (!noTest) {
 							describe('Testing inside SubClass...', () => {
 								describe('Constructor', () => {
 									it('should have a "this" that is a private domain instance', () => {
-										should(this).be.an.instanceOf(Object);
-										should(this === global).equal(false);
-										should(this).have.a.property("__isPrivateDomain__").equal(true);
+										should(self).be.an.instanceOf(Object);
+										should(self === global).equal(false);
 									});
 									it('should have a "this.Self" that is an instance of SubClass', () => {
 										should(this).have.a.property("Self");
@@ -343,21 +340,21 @@ describe('Testing ES5-version Class.js...', () => {
 						}
 					}),
 					APITests: Public(function APITests() {
+						var self = this;
 						describe('Class Instance API', () => {
 							it('should expose "this.Delegate"', () => {
-								should(this).have.a.property("Delegate");
-								should(this.Delegate).be.an.instanceOf(Function);
-								var self = this;
-								(this.Delegate(() => { should(this).be.exactly(self); }))();
-
+								self.should.have.a.property("Delegate");
+								self.Delegate.should.be.an.instanceOf(Function);
+								(self.Delegate(() => { self.should.be.exactly(self); }))();
+								
 							});
 							it('should expose "this.Sibling"', () => {
-								should(this).have.a.property("Sibling");
-								should(this.Sibling).be.an.instanceOf(Function);
-								var that = new (Object.getPrototypeOf(this.Self).constructor)(true);
-								var sibling = this.Sibling(that);
-								should(sibling).have.property("scPrivate");
-								should(sibling.scPrivate).be.exactly(this.scPrivate);
+								self.should.have.a.property("Sibling");
+								self.Sibling.should.be.an.instanceOf(Function);
+								var that = new (Object.getPrototypeOf(self.Self).constructor)(true);
+								var sibling = self.Sibling(that);
+								sibling.should.have.property("scPrivate");
+								sibling.scPrivate.should.be.exactly(self.scPrivate);
 							});
 						});
 					})

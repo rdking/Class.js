@@ -27,13 +27,15 @@ var hasES6 = (function() {
 	return retval;
 })();
 
+var hasSymbol = (typeof(Symbol) == "function");
+
 /*
 	These are data keys that help define the Class. Public scope isn't listed
 	here because the Public scope of a Class is its prototype, and the Public
 	Static scope for the Class is the type constructor function that was
 	generated.
 */
-if (hasES6) {
+if (hasSymbol) {
 	var METADATA = Symbol("METADATA"),
 		PRIVATESCOPE = Symbol("PRIVATESCOPE"),
 		PROTECTEDSCOPE = Symbol("PROTECTEDSCOPE"),
@@ -41,7 +43,11 @@ if (hasES6) {
 		PUBLICSCOPE = Symbol("PUBLICSCOPE"),
 		PUBLICSTATICSCOPE = Symbol("PUBLICSTATICSCOPE"),
 		STATICSCOPE = Symbol("STATICSCOPE"),
-		SUPERPROTO = Symbol("SUPERPROTO");
+		SUPERPROTO = Symbol("SUPERPROTO"),
+		CLASSINSTANCE = Symbol("CLASSINSTANCE"),
+		STATICCONTAINER = Symbol("STATICCONTAINER")
+		PRIVATECONTAINER = Symbol("PRIVATECONTAINER");
+
 }
 else {
 	var METADATA = "__$METADATA$__",
@@ -51,19 +57,22 @@ else {
 		PUBLICSCOPE = "__$PUBLICSCOPE$__",
 		PUBLICSTATICSCOPE = "__$PUBLICSTATICSCOPE$__",
 		STATICSCOPE = "__$STATICSCOPE$__",
-		SUPERPROTO = "__$SUPERPROTO$__";
+		SUPERPROTO = "__$SUPERPROTO$__",
+		CLASSINSTANCE = "__$CLASSINSTANCE$__",
+		STATICCONTAINER = "__$STATICCONTAINER$__",
+		PRIVATECONTAINER = "__$PRIVATECONTAINER$__";
 }
 
 //List of words reserved for use in a Class definition object.
-var DefinitionKeys = [ "Mode", "Implements", "Mixins", "Extends",
-					   "Events", "Constructor", "StaticConstructor",
-					 ];
-var ModifierFns = [ "Private", "Protected", "Public", "Static", "Final",
-					"Abstract", "Property", "Delegate", "Type"
-				  ];
-var MetadataKeys = [ "name", "inheritsFrom", "classMode", "interface",
- 					 "isClass", "isInstance"
-				   ];
+// var DefinitionKeys = [ "Mode", "Implements", "Mixins", "Extends",
+// 					   "Events", "Constructor", "StaticConstructor",
+// 					 ];
+// var ModifierFns = [ "Private", "Protected", "Public", "Static", "Final",
+// 					"Abstract", "Property", "Delegate", "Type"
+// 				  ];
+// var MetadataKeys = [ "name", "inheritsFrom", "classMode", "interface",
+//  					 "isClass", "isInstance"
+// 				   ];
 var ReservedKeys = [ "Mode", "Implements", "Mixins", "Extends",
 					 "Events", "Constructor", "StaticConstructor",
 					 METADATA
@@ -256,9 +265,6 @@ function initialize(classArgs) {
 
 	//Put a flag on it so it can be identified as a private domain object.
 	Object.defineProperties(privateDomain, {
-		"__isPrivateDomain__": {
-			value: true
-		},
 		"Self": {
 			configurable: true,
 			value: owner
@@ -331,7 +337,8 @@ function typeConstructor(classArgs) {
 	var classConstructor = metaData.Constructor;
 	var argc = arguments.length - 1;
 
-	if ((metaData.definition.Mode === ClassModes.Abstract) && !childDomain)
+	if ((metaData.definition.Mode === ClassModes.Abstract) && 
+		(!(Object.getPrototypeOf(classArgs) instanceof ClassArgs)))
 		throw new SyntaxError("Cannot construct an Abstract Class!");
 
 	if (!classConstructor || classConstructor.isPublic ||
@@ -422,6 +429,7 @@ function generateTypeConstructor(name, scopes) {
 		 "		Object.setPrototypeOf(retval, this);\n" +
 		 "	}\n" +
 		 "	\n" +
+		 "	Object.defineProperty(this, CLASSINSTANCE, { value: true });\n" +
 		 "	return retval;\n" +
 		 "});");
 
@@ -569,10 +577,16 @@ function createLinkBox(key) {
 		privilege: Privilege.Link,
 		value: {
 			get: new Functor(null, function getProperty() {
-				return (this && (this !== global)) ? Instances.get(this)[key] : undefined;
+				let p = Instances.get(this);
+				return (this && (this !== global)) ? 
+					(this[STATICCONTAINER]) ? this[key] : 
+					(p) ? p[key] : undefined : undefined;
 			}),
 			set: new Functor(null, function setProperty(value) {
-				this && (this !== global) && (Instances.get(this)[key] = value);
+				let p = Instances.get(this);
+				this && (this !== global) && 
+					(this[STATICCONTAINER]) ? (this[key] = value) :
+					(p && (p[key] = value));
 			})
 		}
 	});
@@ -854,7 +868,7 @@ function generateMetaData(This, name, definition, scopes) {
 	});
 
 	MetaData.set(This, metadata);
-	Object.defineProperty(This.prototype, "isClassInstance", { value: true });
+	//Object.defineProperty(This.prototype, CLASSINSTANCE, { value: true });
 	Object.defineProperty(scopes[STATICSCOPE], "Self", { value: This });
 }
 
@@ -1043,8 +1057,8 @@ var Class = (function _Class() {
 
 		var scopes = createScopesContainer();
 		var retval = generateTypeConstructor(name, scopes);
-		scopes[STATICSCOPE].isStatic = true;
-		scopes[PRIVATESCOPE].isPrivate = true;
+		scopes[STATICSCOPE][STATICCONTAINER] = true;
+		scopes[PRIVATESCOPE][PRIVATECONTAINER] = true;
 		scopes[PUBLICSTATICSCOPE] = retval;
 
 		populateScopes(scopes, validateDefinitionKeys(definition));

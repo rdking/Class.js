@@ -240,7 +240,8 @@ function ClassArgs(name, owner, scopes) {
 	}
 	this.className = name;
 	this.owner = owner;
-	this.childDomain = {};
+	this.childDomain = null;
+	this.parentDomain = {};
 	this.scopes = scopes;
 	this.topDomain = owner;
 	this.native = null;
@@ -261,7 +262,7 @@ function initialize(classArgs) {
 	var childDomain = classArgs.childDomain;
 	var topDomain = classArgs.topDomain;
 	var scopes = classArgs.scopes;
-	var privateDomain = {};
+	var privateDomain = { __proto__: classArgs.parentDomain };
 
 	//Put a flag on it so it can be identified as a private domain object.
 	Object.defineProperties(privateDomain, {
@@ -302,17 +303,23 @@ function initialize(classArgs) {
 
 				return retval;
 			}
+		},
+		[PRIVATECONTAINER]: {
+			value: true
 		}
 	});
 
 	expandScope(privateDomain, scopes[PRIVATESCOPE], null, true);
 
-	//If there's a child domain, construct the protected domain and attach it.
-	if (childDomain) {
-		var protectedDomain = {};
-		expandScope(protectedDomain, scopes[PROTECTEDSCOPE]);
-		childDomain.__proto__ = protectedDomain;
-	}
+	/*
+	 * Populate the child domain with resolved protected links so it can be
+	 * attached to any inheriting private scope instance.
+	 */
+	if (childDomain)
+		expandScope(childDomain, scopes[PROTECTEDSCOPE], privateDomain);
+
+	//Render the public links onto the top domain
+	expandScope(topDomain, scopes[PUBLICSCOPE], privateDomain);
 
 	return privateDomain;
 }
@@ -341,10 +348,11 @@ function typeConstructor(classArgs) {
 		(!(Object.getPrototypeOf(classArgs) instanceof ClassArgs)))
 		throw new SyntaxError("Cannot construct an Abstract Class!");
 
-	if (!classConstructor || classConstructor.isPublic ||
+	if (!classConstructor || classConstructor.isPublic || (this instanceof self.constructor) ||
 		(childDomain && classConstructor.isProtected)) {
 		var args = Array.prototype.slice.call(arguments, 1);
 		var instance = initialize(classArgs);
+		Instances.set(instance.Self, instance);
 
 		if (metaData.Mixins)
 			BlendMixins(definition.Mixins, instance);
@@ -352,7 +360,7 @@ function typeConstructor(classArgs) {
 		if (classConstructor) {
 			if (!(childDomain && (childDomain.__isInheritedDomain || childDomain.__isDescendant))) {
 				if (metaData.definition.Extends) {
-					var hasSuperFirst = /function\s+\w+\s*\((\w+\s*(,\s*\w+)*)?\)\s*{\s*this\s*\.\s*Super\s*\(/;
+					var hasSuperFirst = /^(function)?\s*\w*\s*\((\w+\s*(,\s*\w+)*)?\)\s*{\s*this\s*\.\s*Super\s*\(/;
 					var hasSuper = /\s*this\s*\.\s*Super\s*\(/;
 					var constructorString = classConstructor.value.toString();
 
@@ -384,7 +392,6 @@ function typeConstructor(classArgs) {
 	delete def.configurable;
 	def.value = classArgs.native || this;
 	Object.defineProperty(instance, "Self", def);
-	Instances.set(instance.Self, instance);
 	Object.seal(instance);
 
 	return this;
@@ -414,6 +421,7 @@ function generateTypeConstructor(name, scopes) {
 		 "	var hasClassArgs = arg0 instanceof ClassArgs;\n" +
 		 "	var classArgs = new ClassArgs(name, this, scopes);\n" +
 		 "	if (hasClassArgs) {\n" +
+		 "		classArgs.childDomain = arg0.parentDomain;\n" +
 		 "		Object.setPrototypeOf(classArgs, arg0);\n" +
 		 "		classArgs.topDomain = arg0.topDomain;\n" +
 		 "		args.shift();\n" +
@@ -423,6 +431,8 @@ function generateTypeConstructor(name, scopes) {
 		 "	var retval = typeConstructor.apply(this, args);\n" +
 		 "	if (hasClassArgs) {\n" +
 		 "		arg0.native = classArgs.native;\n" +
+		 "		Object.setPrototypeOf(retval, Object.getPrototypeOf(arg0.owner));\n" +
+		 "		Object.setPrototypeOf(arg0.owner, retval);\n" +
 		 "	}\n" +
 		 "	else if (classArgs.native) {\n" +
 		 "		retval = classArgs.native;\n" +
@@ -432,6 +442,9 @@ function generateTypeConstructor(name, scopes) {
 		 "	Object.defineProperty(this, CLASSINSTANCE, { value: true });\n" +
 		 "	return retval;\n" +
 		 "});");
+
+	Instances.set(retval, scopes[STATICSCOPE]);
+	Object.defineProperty(scopes[STATICSCOPE], "Self", { value: retval });
 
 	return retval;
 }
@@ -569,24 +582,51 @@ function validateDefinitionKeys(definition) {
  * Creates an unbound property that will be resolved to reference a property on
  * another object.
  *
- * @param {string} key - name of the the property to target.
+ * @param {string} key - name of the property to target.
+ * @param {Box} original - Box describing the target property.
  * @returns {Box} A new Box instance posessing an unconfigured link
  */
-function createLinkBox(key) {
+function createLinkBox(key, original) {
+	original = original || {};
 	return new Box({
 		privilege: Privilege.Link,
 		value: {
 			get: new Functor(null, function getProperty() {
-				let p = Instances.get(this);
-				return (this && (this !== global)) ? 
-					(this[STATICCONTAINER]) ? this[key] : 
-					(p) ? p[key] : undefined : undefined;
+				var retval;
+				var p = Instances.get(original.isStatic ? this.Self.construtor : this);
+				if (this && (this !== global)) {
+					if (original.isStatic) {
+						if (this[STATICCONTAINER])
+							retval = this[key];
+						else if (this[PRIVATECONTAINER])
+							retval = p[key];
+						else if (p)
+							retval = p[key];
+					}
+					else if (this[PRIVATECONTAINER])
+						retval = this[key];
+					else if (p)
+						retval = p[key];
+				}
+
+				return retval;
 			}),
 			set: new Functor(null, function setProperty(value) {
-				let p = Instances.get(this);
-				this && (this !== global) && 
-					(this[STATICCONTAINER]) ? (this[key] = value) :
-					(p && (p[key] = value));
+				var p = Instances.get(original.isStatic ? this.Self.construtor : this);
+				if (this && (this !== global)) {
+					if (original.isStatic) {
+						if (this[STATICCONTAINER])
+							this[key] = value;
+						else if (this[PRIVATECONTAINER])
+							p[key] = value;
+						else if (p)
+							p[key] = value;
+					}
+					else if (this[PRIVATECONTAINER])
+						this[key] = value;
+					else if (p)
+						p[key] = value;
+				}
 			})
 		}
 	});
@@ -610,7 +650,8 @@ function cloneAsLinks(src, dest, target) {
 
 	for (var key in src) {
 		if (src.hasOwnProperty(key)) {
-			Object.defineProperty(retval, key, unpackBox(createLinkBox(key), target));
+			var original = (src[key] instanceof Box) ? src[key] : {};
+			Object.defineProperty(retval, key, unpackBox(createLinkBox(key, original), target));
 		}
 	}
 
@@ -619,19 +660,23 @@ function cloneAsLinks(src, dest, target) {
 
 /**
  * Configures an unpacked link created by createLinkBox and unpacked with
- * unpackBox. This forces the link to target the desired object.
+ * unpackBox. This makes the link to target the desired object. If the link is
+ * already configured, reconfiguring to use target only happens if "force" is
+ * true.
  *
- * @param {Object} container - the object posessing the unconfigured link.
- * @param {string} key - the property name of the unconfigured link.
+ * @param {Object} descriptor - the property descriptor of the unconfigured
+ * link.
  * @param {Object} target - the target object that the link should reference.
+ * @param {boolean} [force] - causes the link target to be overwritten even if
+ * it is already set.
  */
-function resolveLink(container, key, target) {
-	var descriptor = Object.getOwnPropertyDescriptor(container, key);
-
-	if (descriptor.get && descriptor.get.isFunctor)
+function resolveLink(descriptor, target, force) {
+	if (descriptor.get && descriptor.get.isFunctor && 
+		(force || !descriptor.get._this))
 		descriptor.get._this = target;
 
-	if (descriptor.set && descriptor.set.isFunctor)
+	if (descriptor.set && descriptor.set.isFunctor &&
+		(force || !descriptor.set._this))
 		descriptor.set._this = target;
 }
 
@@ -665,8 +710,7 @@ function unpackBox(box, target, context) {
 
 		if (box.isLink) {
 			var t = (target && target.isBox) ? target.value : target;
-			retval.get && retval.get.isFunctor && (retval.get._this = t);
-			retval.set && retval.set.isFunctor && (retval.set._this = t);
+			resolveLink(retval, t);
 		}
 		else if (context instanceof Object) {
 			if (isSimpleFunction(retval.get)) {
@@ -735,26 +779,30 @@ function expandScope(dest, scope, target, addContext) {
  * from the Class definition.
  */
 function populateScopes(scopes, members) {
+	var prototype = {};
 	for (var key in members) {
 		if (members.hasOwnProperty(key) && (ReservedKeys.indexOf(key) == -1)) {
 			var member = members[key];
 
 			//If it's static, move it to STATICSCOPE.
+			var linkBox = createLinkBox(key, members[key]);
 			if (member.isStatic) {
+				resolveLink(linkBox.value, scopes[STATICSCOPE]);
 				Object.defineProperty(scopes[STATICSCOPE], key,
 									  unpackBox(member, scopes[STATICSCOPE]));
-				scopes[PRIVATESCOPE][key] = createLinkBox(key);
+				scopes[PRIVATESCOPE][key] = linkBox;
 
 				//Link it to the proper privilege level as well.
 				if (!member.isPrivate) {
 					Object.defineProperty(scopes[PROTECTEDSTATICSCOPE], key,
-										  unpackBox(createLinkBox(key), scopes[STATICSCOPE]));
+										  unpackBox(linkBox, scopes[STATICSCOPE]));
+					
+					if (member.isPublic) {
+						Object.defineProperty(scopes[PUBLICSTATICSCOPE], key,
+											unpackBox(linkBox, scopes[STATICSCOPE]));
+					}
 				}
 
-				if (member.isPublic) {
-					Object.defineProperty(scopes[PUBLICSTATICSCOPE], key,
-										  unpackBox(createLinkBox(key), scopes[STATICSCOPE]));
-				}
 			}
 			else {
 				//If we made it here, it's not static. Put it in PRIVATESCOPE.
@@ -762,16 +810,17 @@ function populateScopes(scopes, members) {
 
 				//Now just figure out where we need to link it.
 				if (!member.isPrivate) {
-					scopes[PROTECTEDSCOPE][key] = createLinkBox(key);
+					scopes[PROTECTEDSCOPE][key] = linkBox;
+					
+					if (member.isPublic) {
+						scopes[PUBLICSCOPE][key] = linkBox;
+					}
 				}
 
-				if (member.isPublic) {
-					scopes[PUBLICSCOPE][key] = createLinkBox(key);
-				}
 			}
 		}
 	}
-
+	return prototype;
 }
 
 /**
@@ -791,7 +840,7 @@ function generateMetaData(This, name, definition, scopes) {
 		},
 		type: {
 			enumerable: true,
-			value: This.bind(null, scopes)
+			value: This
 		},
 		scopes: {
 			enumerable: true,
@@ -868,8 +917,19 @@ function generateMetaData(This, name, definition, scopes) {
 	});
 
 	MetaData.set(This, metadata);
-	//Object.defineProperty(This.prototype, CLASSINSTANCE, { value: true });
-	Object.defineProperty(scopes[STATICSCOPE], "Self", { value: This });
+
+	//There's a couple of things STATICSCOPE needs to be useful
+	Object.defineProperties(scopes[STATICSCOPE], {
+		Self: { value: This },
+		Instance: {
+			value: function Instance(obj) {
+				if (!Instances.has(obj))
+					throw new ClassError(`The given 'obj' is not a "${name}" instance.`);
+
+				return Instances.get(obj);
+			}
+		}
+	});
 }
 
 /**
@@ -880,12 +940,12 @@ function generateMetaData(This, name, definition, scopes) {
 function createScopesContainer() {
 	var retval = {};
 
-	retval[STATICSCOPE] = {};
-	retval[PRIVATESCOPE] = {};
-	retval[PROTECTEDSCOPE] = {};
-	retval[PROTECTEDSTATICSCOPE] = {};
-	retval[PUBLICSCOPE] = {};
-	retval[PUBLICSTATICSCOPE] = {};
+	retval[STATICSCOPE] = {};			//Private static container scope
+	retval[PRIVATESCOPE] = {};			//Private container scope
+	retval[PROTECTEDSCOPE] = {};		//Protected scope
+	retval[PROTECTEDSTATICSCOPE] = {};	//Protected static scope
+	retval[PUBLICSCOPE] = {};			//Prototype scope
+	retval[PUBLICSTATICSCOPE] = {};		//Constructor
 	retval[SUPERPROTO] = null;
 
 	return retval;
@@ -958,7 +1018,7 @@ function createSuperProto(base, baseScopes) {
  * Takes care of including the scopes of Mixins and Extends into the Class
  * definition.
  *
- * @param {Object} This - the Class consstructor being constructed.
+ * @param {Object} This - the Class constructor being constructed.
  * @param {Object} scopes - Object containing the members sorted by scope.
  */
 function inherit(This, scopes) {
@@ -971,10 +1031,11 @@ function inherit(This, scopes) {
 	var eMetadata = MetaData.get(extended);
 	if (eMetadata && eMetadata.isClass) {
 		var extendedScope = eMetadata.scopes;
+		Object.setPrototypeOf(scopes[STATICSCOPE], extendedScope[PROTECTEDSTATICSCOPE]);
 		Object.setPrototypeOf(scopes[PROTECTEDSTATICSCOPE], extendedScope[PROTECTEDSTATICSCOPE]);
-		Object.setPrototypeOf(scopes[PROTECTEDSCOPE], extendedScope[PROTECTEDSCOPE]);
 		Object.setPrototypeOf(scopes[PUBLICSTATICSCOPE], extendedScope[PUBLICSTATICSCOPE]);
-		Object.setPrototypeOf(scopes[PUBLICSCOPE], extended.prototype);
+		Object.setPrototypeOf(scopes[PUBLICSCOPE], extendedScope[PUBLICSCOPE]);
+		Object.setPrototypeOf(This.prototype, extended.prototype);
 
 		//Don't forget to build the Super() prototype
 		scopes[SUPERPROTO] = createSuperProto(extended, extendedScope);
@@ -1026,7 +1087,7 @@ function inherit(This, scopes) {
 	}
 
 	cloneAsLinks(scopes[PUBLICSCOPE], This.prototype, null);
-	Object.setPrototypeOf(This.prototype, Object.getPrototypeOf(scopes[PUBLICSCOPE]));
+	//Object.setPrototypeOf(This.prototype, Object.getPrototypeOf(scopes[PUBLICSCOPE]));
 }
 
 var Class = (function _Class() {
@@ -1056,14 +1117,23 @@ var Class = (function _Class() {
 		}
 
 		var scopes = createScopesContainer();
+		Object.defineProperty(scopes[STATICSCOPE], STATICCONTAINER, { value: true });
+
 		var retval = generateTypeConstructor(name, scopes);
-		scopes[STATICSCOPE][STATICCONTAINER] = true;
-		scopes[PRIVATESCOPE][PRIVATECONTAINER] = true;
 		scopes[PUBLICSTATICSCOPE] = retval;
 
-		populateScopes(scopes, validateDefinitionKeys(definition));
+		var prototype = populateScopes(scopes, validateDefinitionKeys(definition));
+		prototype.constructor = retval;
+		Object.defineProperty(retval, "prototype", { value: prototype });
+
 		generateMetaData(retval, name, definition, scopes);
 		inherit(retval, scopes);
+
+		if (definition.StaticConstructor &&
+			(typeof(definition.StaticConstructor.value) == "function")) {
+			var target = Instances.get(retval);
+			definition.StaticConstructor.value.call(target);
+		}
 
 		return retval;
 	}

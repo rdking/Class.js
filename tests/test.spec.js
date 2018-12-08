@@ -154,9 +154,9 @@ describe('Testing ES5-version Class.js...', () => {
 					//Public Members
 					Constructor: Public(function createSuperClassInstance() {
 						describe('Constructor', () => {
-							var self = this;
+							var self = this.Self;
 							it('should have access to a SuperClass instance called "this"', () => {
-								self.Self.should.be.instanceOf(SuperClass);
+								self.should.be.instanceOf(SuperClass);
 							})
 						})
 					}),
@@ -353,8 +353,8 @@ describe('Testing ES5-version Class.js...', () => {
 								self.Sibling.should.be.an.instanceOf(Function);
 								var that = new (Object.getPrototypeOf(self.Self).constructor)(true);
 								var sibling = self.Sibling(that);
-								sibling.should.have.property("scPrivate");
-								sibling.scPrivate.should.be.exactly(self.scPrivate);
+								sibling.should.have.property("scProtected");
+								sibling.scProtected.should.be.exactly(self.scProtected);
 							});
 						});
 					})

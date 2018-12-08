@@ -7,6 +7,12 @@
 		{
 			"type": "node",
 			"request": "launch",
+			"name": "Run Example",
+			"program": "${workspaceFolder}/example/example.js"
+		},
+		{
+			"type": "node",
+			"request": "launch",
 			"name": "New Format Test",
 			"program": "${workspaceFolder}/es6c/tests/newFormatTest"
 		},

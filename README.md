@@ -16,12 +16,7 @@ ES5 Example:
 --------
 ```javascript
 var Class = require("Class.js");        //The class declarator itself.
-var Private = Class.Private;
-var Protected = Class.Protected;
-var Public = Class.Public;
-var Property = Class.Property;
-var Static = Class.Static;
-var Final = Class.Final;
+Class.InitializeScope((typeof(global) == "object") ? global : window);
 
 //Declare "class SampleBase {}"
 var SampleBase = new Class("SampleBase", {

@@ -1,8 +1,8 @@
 var assert = require("assert");
 var Class = require("../Class");
+
 Class.InitializeScope(global);
 
-debugger;
 var Test = Class("Test", {
 	Extends: Array,
 

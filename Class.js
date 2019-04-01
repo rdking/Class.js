@@ -1,1478 +1,366 @@
-/*******************************************************************************
- * Class.js is a tool for generating JavaScript constructor functions that
- * can create fully encapsulated instance objects with an inheritance chain
- * similar to what one would expect from an object-oriented language without
- * requiring a cross-compiler or incurring much performance overhead.
- * @module java-class
- * @author Ranando D. King
- * @version 3.0.0
- * @copyright 2014 Ranando D. King
- * @license Apache 2.0
- ******************************************************************************/
-
-/*
-	Let's start by figuring out which version of JavaScript we're working with.
-	The module system we use at the bottom will depend on whether or not we
-	have ES6 support.
- */
-var hasES6 = (function() { 
-	var retval = false;
-
-	try {
-		eval("(...args) => {};"); //If this throws, then no ES6.
-		retval = true;
-		console.warn("ES6 support detected. You might want to use the ES6 version!");
-	} catch(e) {};
-
-	return retval;
-})();
-
-var hasSymbol = (typeof(Symbol) == "function");
-
-/*
-	These are data keys that help define the Class. Public scope isn't listed
-	here because the Public scope of a Class is its prototype, and the Public
-	Static scope for the Class is the type constructor function that was
-	generated.
-*/
-if (hasSymbol) {
-	var METADATA = Symbol("METADATA"),
-		PRIVATESCOPE = Symbol("PRIVATESCOPE"),
-		PROTECTEDSCOPE = Symbol("PROTECTEDSCOPE"),
-		PROTECTEDSTATICSCOPE = Symbol("PROTECTEDSTATICSCOPE"),
-		PUBLICSCOPE = Symbol("PUBLICSCOPE"),
-		PUBLICSTATICSCOPE = Symbol("PUBLICSTATICSCOPE"),
-		STATICSCOPE = Symbol("STATICSCOPE"),
-		SUPERPROTO = Symbol("SUPERPROTO"),
-		CLASSINSTANCE = Symbol("CLASSINSTANCE"),
-		STATICCONTAINER = Symbol("STATICCONTAINER")
-		PRIVATECONTAINER = Symbol("PRIVATECONTAINER");
-
-}
-else {
-	var METADATA = "__$METADATA$__",
-		PRIVATESCOPE = "__$PRIVATESCOPE$__",
-		PROTECTEDSCOPE = "__$PROTECTEDSCOPE$__",
-		PROTECTEDSTATICSCOPE = "__$PROTECTEDSTATICSCOPE$__",
-		PUBLICSCOPE = "__$PUBLICSCOPE$__",
-		PUBLICSTATICSCOPE = "__$PUBLICSTATICSCOPE$__",
-		STATICSCOPE = "__$STATICSCOPE$__",
-		SUPERPROTO = "__$SUPERPROTO$__",
-		CLASSINSTANCE = "__$CLASSINSTANCE$__",
-		STATICCONTAINER = "__$STATICCONTAINER$__",
-		PRIVATECONTAINER = "__$PRIVATECONTAINER$__";
-}
-
-//List of words reserved for use in a Class definition object.
-// var DefinitionKeys = [ "Mode", "Implements", "Mixins", "Extends",
-// 					   "Events", "Constructor", "StaticConstructor",
-// 					 ];
-// var ModifierFns = [ "Private", "Protected", "Public", "Static", "Final",
-// 					"Abstract", "Property", "Delegate", "Type"
-// 				  ];
-// var MetadataKeys = [ "name", "inheritsFrom", "classMode", "interface",
-//  					 "isClass", "isInstance"
-// 				   ];
-var ReservedKeys = [ "Mode", "Implements", "Mixins", "Extends",
-					 "Events", "Constructor", "StaticConstructor",
-					 METADATA
-				   ];
-
 /**
- * Enum - Provides the ability to use syntax-checked enumeration values.
- *
- * @typedef {Object} Enum
+ * Class.js is the distillation of my ideas on how to implement private data in
+ * ES 6 environments. This will be the 4th major distillation, each representing
+ * a different idea on how to accomplish the goal. This time, it's based on the
+ * idea of creating an exotic object that is a normal property of the instance.
  */
-var Enum = require("./Enum");
 
-/**
- * WeakMap - Provides an ES5 shim for the features of ES6 WeakMaps.
- *
- * @typedef {Object} WeakMap
- */
-var WeakMap = require("./WeakMap");
+const PrivateStore = require("./PrivateStore");
 
-/**
- * Functor - An alternative to Function.bind that grants runtime flexibility
- * over the bound result.
- *
- * @typedef {Object} Functor
- */
-var Functor = require("./Functor");
-
-/**
- * Interface - An object that defines a contract regarding the publicly useable
- * API of a corresponding class.
- *
- * @typedef {Object} Interface
- */
-var Interface = require("./Interface");
-
-/**
- * Privilege - An enumeration of the possible privilege levels of Class members.
- * Defaults to "None"
- *
- * @typedef {Enum} Privilege
- * @prop {number} None - Specifies an unmarked privilege state.
- * @prop {number} Public - Marks the member as world visible.
- * @prop {number} Protected - Marks the member as descendant visible.
- * @prop {number} Private - Marks the member as exclusively for the defined Class.
- * @prop {number} Link - Marks scope members that refer to a member in another scope.
- */
-var Privilege = new Enum("None", [ "None", "Public", "Protected", "Private", "Link" ]);
-
-/**
- * ClassModes - An enumeration of the inheritability of defined Class types.
- *
- * @typedef {Enum} ClassModes
- * @prop {number} Default - Sets unrestricted inheritability for the new Class.
- * @prop {number} Abstract - Sets required inheritability for the new Class.
- * @prop {number} Final - Restricts all inheritability of the new Class.
- */
-var ClassModes = new Enum("Default", ["Default", "Abstract", "Final"]);
-
-var MetaData = new WeakMap();
-var Instances = new WeakMap();
-
-/**
- * Since Box is common logic between the ES5 and ES6 versions, it has been
- * moved out of this source so it can be used by both version of the library.
- */
-var Box = (require("./lib/Box"))(Privilege, hasES6);
-var Utils = (require("./lib/utils"))(Box, Privilege, hasES6);
-
-var modifyBox = Utils.modifyBox;
-var extend = Utils.extend;
-var extendIf = Utils.extendIf;
-
-/**
- * ClassDefError - An exception class used to flag errors in Class definitions.
- *
- * @class ClassDefError
- * @extends Error
- * @param {string} message - String content of the error message to be printed
- * when thrown.
- * @param {string} key - Key in the Class definition object where the errors was
- * found.
- */
-function ClassDefError(message, key) {
-	this.name = "ClassDefError";
-	this.key = key;
-	this.message = (key?"Class - While processing '" + key + "' - ": "") + message;
-}
-ClassDefError.prototype = SyntaxError.prototype;
-
-/**
- * ClassError - An exception class used to flag runtime errors in Class.
- *
- * @class ClassError
- * @extends Error
- * @param {string} message - String content of the error message to be printed
- * when thrown.
- */
-function ClassError(message) {
-	this.name = "ClassError";
-	this.message = "Class - While running: " + message;
-}
-ClassError.prototype = Error.prototype;
-
-/**
- * Checks to see if the parameter is a function that's not one of the the 
- * special types provided by this library.
- * 
- * @param {*} obj - the value being tested.
- * @returns {boolean} - true iff obj is a function, but not a Class, Enum,
- * Interface, or Attribute.
- */
-function isSimpleFunction(obj) {
-	return ((obj instanceof Function) &&
-			!(obj.isClass || obj.isEnum || obj.isInterface || obj.isAttribute));
-}
-
-/**
- * Checks to see if the parameter is a constructor function.
- *  
- * @param {*} obj - the value being tested.
- * @returns {Object} - true iff obj is a function with a prototype object that has
- * a constructor matching itself and at least 1 other property.
- */
-function isConstructor(obj) {
-	return ((obj instanceof Function) &&
-			obj.hasOwnProperty('prototype') &&
-			(obj.prototype instanceof Object) &&
-			obj.prototype.hasOwnProperty('constructor') &&
-			(obj.prototype.constructor === obj) &&
-			Object.getOwnPropertyNames(obj).length > 1);
-}
-
-/**
- * Checks to see if the parameter is a function implemented in native code.
- * 
- * @param {*} obj - the value being tested.
- * @returns {Object} - true iff obj is a function with a toString() value
- * matching the pattern for a native code function.
- */
-function isNativeFunction(obj) {
-	return ((obj instanceof Function) &&
-			/^function\s+\w+\(\)\s+{\s+\[native\s+code\]\s+}$/.test(obj.toString()));
-}
-
-function isValidType(type, value) {
-	return ((value === null) || (value === undefined) ||
-			(type.isInterface && type.isImplementedBy(value)) ||
-			(type.isClass && (value instanceof type)) ||
-			((type === Function) && (value instanceof Function)) ||
-			((type === Date) && (value instanceof Date)) ||
-			((type === String) && (typeof value == "string")) ||
-			((typeof type == "string") && (type.toLowerCase() == typeof value)));
-}
-
-/**
- * Constructor for a simple type used to hold changing construction metadata.
- * 
- * @param {Object} name - User-given name for the class.
- * @param {Object} owner - Public instance of the Class being constucted.
- * @param {Object} scopes - Object containing all the member scope objects.
- */
-function ClassArgs(name, owner, scopes) {
-	if (!(this instanceof ClassArgs)) {
-		throw new ClassError("ClassArgs is a constructor. You must use 'new'.");
-	}
-	this.className = name;
-	this.owner = owner;
-	this.childDomain = null;
-	this.parentDomain = {};
-	this.scopes = scopes;
-	this.topDomain = owner;
-	this.native = null;
-}
-
-/**
- * Creates the private, protected, and public instance domains.
- *
- * @param {Object} owner - the "this" of the current Class being constructed.
- * @param {Object} childDomain - the private domain of the a descendant Class
- * requesting the current Class's construction.
- * @param {Object} topDomain - the "this" of the top-level descendant that
- * started this construction chain.
- */
-function initialize(classArgs) {
-	//First, create a private domain and populate it..
-	var owner = classArgs.owner;
-	var childDomain = classArgs.childDomain;
-	var topDomain = classArgs.topDomain;
-	var scopes = classArgs.scopes;
-	var privateDomain = { __proto__: classArgs.parentDomain };
-
-	//Put a flag on it so it can be identified as a private domain object.
-	Object.defineProperties(privateDomain, {
-		"Self": {
-			configurable: true,
-			value: owner
+if (!("Class" in Symbol)) {
+	Object.defineProperty(Symbol, "Class", {
+		enumerable: true,
+		value: {}
+	});
+	Object.defineProperties(Symbol.Class, {
+		privateKey: {
+			enumerable: true,
+			value: Symbol("Class.privateKey")
 		},
-		"Super": {
-			value: (function() {
-				var retval = (function Super() {
-					var base = MetaData.get(Object.getPrototypeOf(owner).constructor).definition.Extends;
-					var isNative = isNativeFunction(base);
-					var args = Array.prototype.slice.call(arguments, ~~isNative);
-					//This is ugly, but it preserves the objects that may have been passed in.
-					var parent = eval('new base(' + ((args.length) ? 'args[' + Object.keys(args).join('], args[') + ']' : '') + ')');
-
-					if (isNative) {
-						//Send this upstream to be used by the overconstructor...
-						classArgs.native = parent;
-						Object.setPrototypeOf(Object.getPrototypeOf(classArgs.owner), base.prototype);
-					}
-				}).bind(owner, classArgs);
-
-				Object.setPrototypeOf(retval, scopes[SUPERPROTO]);
-				return retval;
-			})()
+		protectedKey: {
+			enumerable: true,
+			value: Symbol("Class.protectedKey")
 		},
-		"Delegate" : {
-			value: function Delegate(fn) {
-				return new Functor(this, fn);
-			}
+		classObject: {
+			enumerable: true,
+			value: Symbol("Class.classObject")
 		},
-		"Sibling": {
-			value: function Sibling(other) {
-				var retval;
-				if (other instanceof Object.getPrototypeOf(this.Self).constructor)
-					retval = Instances.get(other);
-
-				return retval;
-			}
+		privateMembers: {
+			enumerable: true,
+			value: Symbol("Class.privateMembers")
 		},
-		[PRIVATECONTAINER]: {
-			value: true
+		protectedMembers: {
+			enumerable: true,
+			value: Symbol("Class.protectedMembers")
+		},
+		instance: {
+			enumerable: true,
+			value: Symbol("Class.instance")
+		},
+		static: {
+			enumerable: true,
+			value: Symbol("Class.static")
+		},
+		constructor: {
+			enumerable: true,
+			value: Symbol("Class.Constructor")
 		}
 	});
-
-	expandScope(privateDomain, scopes[PRIVATESCOPE], null, true);
-
-	/*
-	 * Populate the child domain with resolved protected links so it can be
-	 * attached to any inheriting private scope instance.
-	 */
-	if (childDomain)
-		expandScope(childDomain, scopes[PROTECTEDSCOPE], privateDomain);
-
-	//Render the public links onto the top domain
-	expandScope(topDomain, scopes[PUBLICSCOPE], privateDomain);
-
-	return privateDomain;
 }
 
-/**
- * The Class instance constructor, not to be confused with the type-specific
- * constructor provided in the Class definition. This constructor stages the
- * Class instance and calls the constructor in the Class definition.
- *
- * @param {Object} classArgs - Object containing initialization chain information.
- * @param {Object} classArgs.scopes - Object containing all the member scope objects.
- * @param {Object=} classArgs.childDomain - the private scope instance from a descendant Class.
- * @param {Object=} classArgs.owner - the public instance reference being constructed.
- * @returns {Object} - The fully constructed instance of the desired class.
- */
-function typeConstructor(classArgs) {
-	var name = classArgs.className;
-	var scopes = classArgs.scopes;
-	var childDomain = classArgs.childDomain;
-	var self = classArgs.topDomain;
-	var metaData = MetaData.get(Object.getPrototypeOf(this).constructor);
-	var classConstructor = metaData.Constructor;
-	var argc = arguments.length - 1;
+function getCleanStack(offset = 0) {
+	let limit = Error.stackTraceLimit;
+	Error.stackTraceLimit = 50;
 
-	if ((metaData.definition.Mode === ClassModes.Abstract) && 
-		(!(Object.getPrototypeOf(classArgs) instanceof ClassArgs)))
-		throw new SyntaxError("Cannot construct an Abstract Class!");
+	let retval = Error().stack.split('\n');
+	while (!retval[0].includes("getCleanStack"))
+		retval.shift();
 
-	if (!classConstructor || classConstructor.isPublic || (this instanceof self.constructor) ||
-		(childDomain && classConstructor.isProtected)) {
-		var args = Array.prototype.slice.call(arguments, 1);
-		var instance = initialize(classArgs);
-		Instances.set(instance.Self, instance);
+	Error.stackTraceLimit = limit;
 
-		if (metaData.Mixins)
-			BlendMixins(definition.Mixins, instance);
-			
-		if (classConstructor) {
-			if (!(childDomain && (childDomain.__isInheritedDomain || childDomain.__isDescendant))) {
-				if (metaData.definition.Extends) {
-					var hasSuperFirst = /^(function)?\s*\w*\s*\((\w+\s*(,\s*\w+)*)?\)\s*{\s*this\s*\.\s*Super\s*\(/;
-					var hasSuper = /\s*this\s*\.\s*Super\s*\(/;
-					var constructorString = classConstructor.value.toString();
+	return retval.slice(1 + offset);
+}
 
-					if (!hasSuper.test(constructorString)) {
-						console.warn("Calling this.Super() for you!!!. You should be doing this in your " + name + " constructor!");
+const Class = (() => {
+	const ClassSignature = Symbol();		//Used to recognize proxy objects
+	const signatures = new WeakMap;			//Per class, private store keys
+	const protectedMembers = new WeakMap;	//
+	const frames = new WeakMap;				//Stack frames for target functions
+	const callStack = [];					//Last called monitored functions
+	const ctorStack = [];					//Last called constructors
 
-						if (instance.Super.length)
-							throw new Error("No default constructor available in " + name + "\'s super class!");
+	/**
+	 * Wraps a function with a wrapper that captures the call stack
+	 * so that this call to a member function can be authorized from
+	 * private access.
+	 * @param {function} fn - The target function to be wrapped.
+	 * @param {boolean} construct - If true, fn is called using `new`.
+	 * @returns A wrapped version of the original function.
+	 */
+	function getWrapper(fn, construct) {
+		let retval = function (...args) {
+			frames.set(fn, getCleanStack(1))
+			callStack.push(fn);
+			let retval = (construct) ? Reflect.construct(fn, args, new.target)
+				: fn.call(this, ...args);
+			callStack.pop();
+			frames.delete(fn);
+			return retval;
+		}
 
-						Function.prototype.apply.call(instance.Super, instance, args);
+		//Mask the wrapper function to look like the original.
+		Object.defineProperties(retval, {
+			toString: {
+				enumerable: true,
+				writable: true,
+				value: () => fn.toString()
+			},
+			name: {
+				configurable: true,
+				value: fn.name
+			},
+			length: {
+				configurable: true,
+				value: fn.length
+			}
+		});
+		retval.prototype = fn.prototype;
+		Object.setPrototypeOf(retval, Object.getPrototypeOf(fn));
+		return retval;
+	}
+
+	/**
+	 * Compares the current stack trace to the stack trace for the 
+	 * most recently called Class-managed class member function.
+	 * @returns A boolean specifying whether or not the test passed.
+	 */
+	function testStack() {
+		let stack = getCleanStack(4);
+		let fn = callStack[callStack.length - 1];
+		let stack2 = frames.get(fn);
+		return !!stack2 && (stack2.join('\n') == stack.join('\n'));
+	}
+
+	function Class(clazz) {
+		if (this instanceof Class)
+			throw new TypeError("Class is not a constructor.");
+		if (typeof (clazz) != "function")
+			throw new TypeError("Class requires a constructor function as a parameter");
+		if (clazz.hasOwnProperty(Symbol.privateKey))
+			throw new TypeError("The constructor function already has a private key!");
+
+		/**
+		 * This code substitutes for ClassDefinitionEvaluation. Start by
+		 * generating the privateKey and class signature.
+		 */
+		Object.defineProperties(clazz, {
+			[Symbol.privateKey]: {
+				value: Symbol(`${clazz.name} Private Key`)
+			},
+			[Symbol.protectedKey]: {
+				value: Symbol(`${clazz.name} Protected Key`)
+			}
+		});
+		signatures.set(clazz, Symbol(`${clazz.name} Signature`));
+
+		/**
+		 * We need to link the protected members to the private container with
+		 * an accessor. Descendant classes will link back to the protected data
+		 * via a Symbol-named accessor property created in that class's private
+		 * container.
+		 */
+		let hasCProt = clazz.hasOwnProperty(Symbol.Class.protectedMembers);
+		let hasBProt = (newTarget !== clazz) && 
+						newTarget.hasOwnProperty(Symbol.protectedMembers);
+		if (hasCProt || hasBProt) {
+			let iProtInit = {};
+			let data = { own: [], inherited: {}, map: {}};
+
+			if (hasCProt) {
+				let idata = clazz[Symbol.Class.protectedMembers]();
+				Object.assign(iProtInit, idata);
+				data.own = Object.keys(idata);
+			}
+			if (hasBProt) {
+				let pdata = protectedMembers.get(newTarget);
+
+				function makeAccessor(key) {
+					let nKey = Symbol();
+					data.map[nKey] = pdata.map[key] || key;
+					data.inherited[nKey] = {
+						enumerable: true,
+						get() {
+							let target = this[newTarget[Symbol.Class.protectedKey]];
+							return Reflect.get(target, key, this); 
+						},
+						set(v) { 
+							let target = this[newTarget[Symbol.Class.protectedKey]];
+							Reflect.set(target, key, v, this);
+						}
+					};
+					Object.defineProperty(iProtInit, nKey, data.inherited[nKey]);
+				}
+				
+				for (let key of pdata.own) {
+					makeAccessor(key);
+				}
+				
+				for (let key in pdata.inherited) {
+					let nKey = Symbol();
+					data.map[nKey] = pdata.map[key] || key;
+					data.inherited[nKey] = pdata.inherited[key];
+					Object.defineProperty(iProtInit, key, pdata.inherited[key]);
+				}
+			}
+		}
+
+		/**
+		 * Wrap all the member and static member functions, and stamp them
+		 * with the identity for the class. We'll be using that later to
+		 * verify permissions and access the correct PrivateStore.
+		 */
+		for (let obj of [clazz.prototype, clazz]) {
+			let keys = Object.getOwnPropertyNames(obj)
+				.concat(Object.getOwnPropertySymbols(obj))
+				.filter(name => (name == "constructor") ||
+					(!Function.prototype.hasOwnProperty(name) &&
+						(name != Symbol.classObject)));
+			for (let key of keys) {
+				let desc = Object.getOwnPropertyDescriptor(obj, key);
+				if (desc) {
+					for (let prop of ["value", "get", "set"]) {
+						if ((prop in desc) && (typeof (desc[prop]) == "function")) {
+							//Stamp the class identitiy on the function.
+							Object.defineProperty(desc[prop], Symbol.classObject, {
+								value: clazz
+							});
+							//Wrap the function so we can authorize access for it as needed.
+							desc[prop] = getWrapper(desc[prop], key == "constructor");
+							Object.defineProperty(obj, key, desc);
+						}
+					}
+				}
+			}
+		}
+
+		const pHandler = new Proxy({}, {
+			get(t, handler, r) {
+				return (...args) => {
+					let [target, prop] = args;
+					let retval, clazz;
+					let constructing = ctorStack.length > 0;
+
+					if ((handler == "has") && (prop === ClassSignature)) {
+						retval = true;
+					}
+					else if (!constructing && prop && (typeof (prop) == "string")
+						&& prop.length && (prop[0] == '$')) {
+						//This is an access attempt on a private member!
+						if (handler == "get")
+							retval = void 0;
+						else
+							retval = false;
+
+						/**
+						 * This is the ES equivalent of getting the [[ClassObject]] from
+						 * the environment record. Clumbsy though it may be, it should
+						 * work on any platform.
+						 */
+						if (testStack()) {
+							clazz = callStack[callStack.length - 1][Symbol.classObject];
+						}
+
+						if (typeof (clazz) == "function") {
+							let pvt = target[clazz[Symbol.privateKey]];
+							let sig = signatures.get(clazz);
+
+							if (!pvt || !sig) {
+								throw new TypeError("Unsigned class encountered.");
+							}
+							if (["defineProperty", "deleteProperty", "has"].includes(handler)) {
+								throw new TypeError(`Attempted "${handler}" on a private field.`);
+							}
+
+							console.log(`handler = "${handler}"`);
+							args[0] = pvt;
+							args[1] = prop.substring(1);
+							pvt[sig] = true;
+							retval = Reflect[handler](...args);
+							pvt[sig] = false;
+						}
 					}
 					else {
-						if (!hasSuperFirst.test(constructorString))
-							console.warn("Super should be the first call in your " + name + " constructor!")
+						retval = Reflect[handler](...args);
 					}
+
+					return retval;
 				}
-				classConstructor.value.apply(instance, args);
-			}
-		}
-		else if (metaData.definition.Extends) {
-			Function.prototype.apply.call(instance.Super, instance, args);
-		}
-	}
-	else if (classConstructor)
-		throw new Error("Constructor '" + name + "' is not accessible!");
-
-	//Fix Self and make it const.
-	var def = Object.getOwnPropertyDescriptor(instance, "Self");
-	delete def.configurable;
-	def.value = classArgs.native || this;
-	Object.defineProperty(instance, "Self", def);
-	Object.seal(instance);
-
-	return this;
-}
-
-/**
- * Creates the actual Object constructor function for the newly declared type.
- * @param {string} name - Name of the new Class type.
- * @param {Object} scopes - Object containing all the member scope objects.
- * @returns {Function} - the newly created Class type constructor.
- */
-function generateTypeConstructor(name, scopes) {
-	//Just a quick sanity check on that name...
-	if (!/^(?!\d)\w\w*$/.test(name))
-		throw new ClassError('Invalid name: "' + name + '". Must be a valid JS variable name.');
-
-	var retval = eval("(function " + name + "() {\n" +
-		 "	var callErrorString = \"This is a class instance generating function. \" + \n" +
-		 "						  \"You must use 'new " + (name || "<ClassName>") + "\" + \n" +
-		 "						  \"(...)' to use this function.\"; \n" +
-		 "	if (!(this instanceof " + name + ")) {\n" +
-		 "		throw new ClassError(callErrorString);\n" +
-		 "	}\n" +
-		 "	\n" +
-		 "	var args = Array.prototype.slice.call(arguments);\n" +
-		 "	var arg0 = args[0];\n" +
-		 "	var hasClassArgs = arg0 instanceof ClassArgs;\n" +
-		 "	var classArgs = new ClassArgs(name, this, scopes);\n" +
-		 "	if (hasClassArgs) {\n" +
-		 "		classArgs.childDomain = arg0.parentDomain;\n" +
-		 "		Object.setPrototypeOf(classArgs, arg0);\n" +
-		 "		classArgs.topDomain = arg0.topDomain;\n" +
-		 "		args.shift();\n" +
-		 "	}\n" +
-		 "	args.unshift(classArgs);\n" +
-		 "	\n" +
-		 "	var retval = typeConstructor.apply(this, args);\n" +
-		 "	if (hasClassArgs) {\n" +
-		 "		arg0.native = classArgs.native;\n" +
-		 "		Object.setPrototypeOf(retval, Object.getPrototypeOf(arg0.owner));\n" +
-		 "		Object.setPrototypeOf(arg0.owner, retval);\n" +
-		 "	}\n" +
-		 "	else if (classArgs.native) {\n" +
-		 "		retval = classArgs.native;\n" +
-		 "		Object.setPrototypeOf(retval, this);\n" +
-		 "	}\n" +
-		 "	\n" +
-		 "	Object.defineProperty(this, CLASSINSTANCE, { value: true });\n" +
-		 "	return retval;\n" +
-		 "});");
-
-	Instances.set(retval, scopes[STATICSCOPE]);
-	Object.defineProperty(scopes[STATICSCOPE], "Self", { value: retval });
-
-	return retval;
-}
-
-/**
- * Validates and filters the keys in the definition, only returning the keys
- * that are directly available in some scope of the completed Class.
- * 
- * @param {Object} definition - The full class definition.
- * @returns {Object} - a new object containing only the definition keys that
- * are neither constructors nor metadata.
- */
-function validateDefinitionKeys(definition) {
-	var mKey;
-	var retval = {};
-	var mode;
-
-	for (var key in definition) {
-		if (definition.hasOwnProperty(key)) {
-			var member = definition[key];
-
-			/*
-				If the member isn't an instance of Box, then it's either one of
-				the Class definition description keys or it's just a public
-				member that's been made public by default.
-			*/
-			if (!(member instanceof Box)) {
-				switch(key) {
-					case "Mode":
-						//Since we're keeping the metadata, we only validate.
-						if (!ClassModes.isMember(member))
-							throw new ClassDefError("Invalid Mode!", "Mode");
-						mode = member;
-						break;
-					case "Implements":
-						if (Array.isArray(member)) {
-							for (mKey in member) {
-								if (member.hasOwnProperty(mKey)) {
-									if (!member[mKey].isInterface)
-										throw new ClassDefError("Invalid interface!", key);
-								}
-							}
-						}
-						else
-							throw new ClassDefError("Not an array of Interfaces!", key);
-
-						break;
-					case "Mixins":
-						if (!Array.isArray(member))
-							throw new ClassDefError("Not an array!", key);
-
-						for (mKey in member) {
-							if (member.hasOwnProperty(mKey)) {
-								if (member[mKey] instanceof Function)
-									throw new ClassDefError("Cannot mixin functions!", key);
-							}
-						}
-						break;
-					case "Extends":
-						if (!(member instanceof Function))
-							throw new ClassDefError("Cannot extend non-function!", key);
-						break;
-					case "Events":
-						if (!Array.isArray(member))
-							throw new ClassDefError("Not an array!", key);
-
-						for (var i = 0; i < member.length; i++) {
-							if (typeof member[i] !== "string")
-								throw new ClassDefError("Non-string event name!", key);
-						}
-						break;
-					case "Constructor":
-					case "StaticConstructor":
-						if (!(member instanceof Function))
-							throw new ClassDefError("Must be a function!", key);
-
-						definition[key] = modifyBox(null, {isPublic: true}, member);
-						break;
-					default:
-						throw new ClassDefError("Unrecognized key!", key);
-				}
-			}
-			else {
-				switch(key) {
-					case "Constructor":
-						if (member.isStatic)
-							throw new ClassDefError("Cannot be Static!", key);
-
-						if (member.isProperty)
-							throw new ClassDefError("Cannot be a Property!", key);
-
-						if (member.isAbstract)
-							throw new ClassDefError("Cannot be Abstract!", key);
-
-						if (!(member.value instanceof Function))
-							throw new ClassDefError("Must be a function!", key);
-
-						break;
-					case "StaticConstructor":
-						if (member.isPrivate)
-							throw new ClassDefError("Cannot be Private!", key);
-
-						if (member.isProtected)
-							throw new ClassDefError("Cannot be Protected!", key);
-
-						if (member.isProperty)
-							throw new ClassDefError("Cannot be a Property!", key);
-
-						if (member.isAbstract)
-							throw new ClassDefError("Cannot be Abstract!", key);
-
-						if (member.isFinal)
-							throw new ClassDefError("Cannot be Final!", key);
-
-						if (!(member.value instanceof Function))
-							throw new ClassDefError("Must be a function!", key);
-
-						break;
-					default:
-						if (member.isAbstract && mode === ClassModes.Final)
-							throw new ClassDefError('Cannot be "Abstract" in a "Final" Class!', key);
-
-						retval[key] = member;
-						//Nothing to do here. It's just good form...
-						break;
-				}
-			}
-		}
-	}
-
-	return retval;
-}
-
-/**
- * Creates an unbound property that will be resolved to reference a property on
- * another object.
- *
- * @param {string} key - name of the property to target.
- * @param {Box} original - Box describing the target property.
- * @returns {Box} A new Box instance posessing an unconfigured link
- */
-function createLinkBox(key, original) {
-	original = original || {};
-	return new Box({
-		privilege: Privilege.Link,
-		value: {
-			get: new Functor(null, function getProperty() {
-				var retval;
-				var p = Instances.get(original.isStatic ? this.Self.construtor : this);
-				if (this && (this !== global)) {
-					if (original.isStatic) {
-						if (this[STATICCONTAINER])
-							retval = this[key];
-						else if (this[PRIVATECONTAINER])
-							retval = p[key];
-						else if (p)
-							retval = p[key];
-					}
-					else if (this[PRIVATECONTAINER])
-						retval = this[key];
-					else if (p)
-						retval = p[key];
-				}
-
-				return retval;
-			}),
-			set: new Functor(null, function setProperty(value) {
-				var p = Instances.get(original.isStatic ? this.Self.construtor : this);
-				if (this && (this !== global)) {
-					if (original.isStatic) {
-						if (this[STATICCONTAINER])
-							this[key] = value;
-						else if (this[PRIVATECONTAINER])
-							p[key] = value;
-						else if (p)
-							p[key] = value;
-					}
-					else if (this[PRIVATECONTAINER])
-						this[key] = value;
-					else if (p)
-						p[key] = value;
-				}
-			})
-		}
-	});
-}
-
-/**
- * Makes a copy of an object such that all of the properties on the original
- * referenced on the duplicate via links created with createLinkBox().
- * 
- * @param {Object} src - Object containing members to be linked
- * @param {Object=} dest - Object that the links will be placed in. A new
- * object will be created if not specified.
- * @param {Object=} target - Object that is the link target of the copy. If not
- * specified, src is used.
- * @returns {Object} - a new Object where every own property directly
- * references src.
- */
-function cloneAsLinks(src, dest, target) {
-	var retval = dest || {};
-	target = (target === undefined) ? src : target;
-
-	for (var key in src) {
-		if (src.hasOwnProperty(key)) {
-			var original = (src[key] instanceof Box) ? src[key] : {};
-			Object.defineProperty(retval, key, unpackBox(createLinkBox(key, original), target));
-		}
-	}
-
-	return retval;
-}
-
-/**
- * Configures an unpacked link created by createLinkBox and unpacked with
- * unpackBox. This makes the link to target the desired object. If the link is
- * already configured, reconfiguring to use target only happens if "force" is
- * true.
- *
- * @param {Object} descriptor - the property descriptor of the unconfigured
- * link.
- * @param {Object} target - the target object that the link should reference.
- * @param {boolean} [force] - causes the link target to be overwritten even if
- * it is already set.
- */
-function resolveLink(descriptor, target, force) {
-	if (descriptor.get && descriptor.get.isFunctor && 
-		(force || !descriptor.get._this))
-		descriptor.get._this = target;
-
-	if (descriptor.set && descriptor.set.isFunctor &&
-		(force || !descriptor.set._this))
-		descriptor.set._this = target;
-}
-
-/**
- * Expands the contents of a Box instance into a JavaScript property definition.
- *
- * @param {Box} box - the Box instance to be expanded
- * @param {Object} target - an object to reference if the Box contains a link.
- * @returns {Object} the property definition to use with Object.defineProperty
- * to create the property described by the Box instance.
- */
-function unpackBox(box, target, context) {
-	var retval = {
-		enumerable: true
-	};
-
-	function scopeIt(_fn) {
-		var _rval;
-
-		with (context) {
-			_rval = eval('(' + _fn.toString() + ')');
-		}
-
-		return _rval;
-	}
-
-	//If this Box is a property, we need to build it
-	if (box.isProperty || box.isLink) {
-		retval.get = box.value.get;
-		retval.set = box.value.set;
-
-		if (box.isLink) {
-			var t = (target && target.isBox) ? target.value : target;
-			resolveLink(retval, t);
-		}
-		else if (context instanceof Object) {
-			if (isSimpleFunction(retval.get)) {
-				retval.get = scopeIt(retval.get);
-			}
-			if (isSimpleFunction(retval.set)) {
-				retval.set = scopeIt(retval.set);
-			}
-		}
-	}
-	else {
-		var value = box.value;
-		var isSimpleFn = isSimpleFunction(value);
-
-		if (!box.isFinal && !isSimpleFn)
-			retval.writable = true;
-
-		if ((context instanceof Object) && isSimpleFn) {
-			value = scopeIt(value);
-		}
-
-		if (isSimpleFn) {
-			retval.value = new Functor(target, value);
-		}
-		else {
-			retval.value = value;
-		}
-	}
-
-	return retval;
-}
-
-/**
- * Expands the properties described by a scope object onto a destination object
- * targeting all functions to be called from a given context.
- * 
- * @param {Object} dest - the object that will contain the expanded properties.
- * @param {Object} scope - the object containing the Boxed properties.
- * @param {Object} target - the object to be used
- * @param {boolean} addContext - if true and the property is a function, the
- * property is redeclared using dest as its context.
- */
-function expandScope(dest, scope, target, addContext) {
-	if (!target)
-		target = dest;
-
-	if (!scope)
-		scope = dest;
-
-	for (var key in scope) {
-		if (scope.hasOwnProperty(key) && scope[key].isBox) {
-			var unpacked = unpackBox(scope[key], target, (addContext) ? dest : undefined);
-			Object.defineProperty(dest, key, unpacked);
-		}
-	}
-}
-
-/**
- * Applies each property of the definition to the appropriate scope. Properties
- * are also created to ensure appropriate references back to the private/static
- * scope. Static scope will be fully expanded by the completion of this function.
- *
- * @param {Object} scopes - the object containing an object for each of the 6
- * possible scopes.
- * @param {object} members - the object containing all of the member elements
- * from the Class definition.
- */
-function populateScopes(scopes, members) {
-	var prototype = {};
-	for (var key in members) {
-		if (members.hasOwnProperty(key) && (ReservedKeys.indexOf(key) == -1)) {
-			var member = members[key];
-
-			//If it's static, move it to STATICSCOPE.
-			var linkBox = createLinkBox(key, members[key]);
-			if (member.isStatic) {
-				resolveLink(linkBox.value, scopes[STATICSCOPE]);
-				Object.defineProperty(scopes[STATICSCOPE], key,
-									  unpackBox(member, scopes[STATICSCOPE]));
-				scopes[PRIVATESCOPE][key] = linkBox;
-
-				//Link it to the proper privilege level as well.
-				if (!member.isPrivate) {
-					Object.defineProperty(scopes[PROTECTEDSTATICSCOPE], key,
-										  unpackBox(linkBox, scopes[STATICSCOPE]));
-					
-					if (member.isPublic) {
-						Object.defineProperty(scopes[PUBLICSTATICSCOPE], key,
-											unpackBox(linkBox, scopes[STATICSCOPE]));
-					}
-				}
-
-			}
-			else {
-				//If we made it here, it's not static. Put it in PRIVATESCOPE.
-				scopes[PRIVATESCOPE][key] = member;
-
-				//Now just figure out where we need to link it.
-				if (!member.isPrivate) {
-					scopes[PROTECTEDSCOPE][key] = linkBox;
-					
-					if (member.isPublic) {
-						scopes[PUBLICSCOPE][key] = linkBox;
-					}
-				}
-
-			}
-		}
-	}
-	return prototype;
-}
-
-/**
- * Creates an object with constant information and adds it to the constructor.
- * @param {Function} This - the Class type constructor.
- * @param {string} name - the name of the Class type.
- * @param {Object} definition - the object passed into the Class factory to
- * produce the new Class type.
- * @param {Object} scopes - an object containing all the scope objects
- */
-function generateMetaData(This, name, definition, scopes) {
-	var metadata = {};
-	Object.defineProperties(metadata, {
-		name: {
-			enumerable: true,
-			value: name
-		},
-		type: {
-			enumerable: true,
-			value: This
-		},
-		scopes: {
-			enumerable: true,
-			value: scopes
-		},
-		Constructor: {
-			enumerable: true,
-			value: definition.Constructor
-		},
-		StaticConstructor: {
-			enumerable: true,
-			value: definition.StaticConstructor
-		},
-		definition: {
-			enumerable: true,
-			value: Object.freeze(definition)
-		},
-		isClass: {
-			enumerable: true,
-			value: true,
-		},
-		classMode: {
-			enumerable: true,
-			get: function getClassMode() {
-				return definition.Mode || ClassModes.Default;
-			}
-		},
-		inheritsFrom: {
-			enumerable: true,
-			value: function inheritsFrom(obj) {
-				return (definition.hasOwnProperty("Extends") &&
-						definition.Extends.isClass &&
-						((definition.Extends === obj) ||
-						 (definition.Extends[METADATA].inheritsFrom(obj))));
-			}
-		},
-		interface: {
-			enumerable: true,
-			value: (function getInterface() {
-				var intDef = {};
-
-				if (definition.Extends && !isNativeFunction(definition.Extends))
-					intDef.Extends = [ MetaData.get(definition.Extends).interface ];
-
-				if (definition.Implements && Array.isArray(definition.Implements)) {
-					if (!Array.isArray(intDef.Extends))
-						intDef.Extends = [];
-
-					for (var i=0; i< definition.Implements.length; ++i)
-						intDef.Extends.push(definition.Implements[i]);
-				}
-
-				intDef.Properties = {};
-				intDef.Methods = {};
-
-				for(var elementKey in definition) {
-					if (definition.hasOwnProperty(elementKey)) {
-						var element = definition[elementKey];
-
-						if ((elementKey != "Constructor") && (elementKey != "StaticConstructor") &&
-							(element.isBox && element.isPublic)) {
-
-							if (element.isProperty)
-								intDef.Properties[elementKey] = element.value.hasOwnProperty("set");
-							else
-								intDef.Methods[elementKey] = element.value.length;
-						}
-					}
-				}
-
-				return new Interface(name + "_Interface", intDef);
-			})()
-		}
-	});
-
-	MetaData.set(This, metadata);
-
-	//There's a couple of things STATICSCOPE needs to be useful
-	Object.defineProperties(scopes[STATICSCOPE], {
-		Self: { value: This },
-		Instance: {
-			value: function Instance(obj) {
-				if (!Instances.has(obj))
-					throw new ClassError(`The given 'obj' is not a "${name}" instance.`);
-
-				return Instances.get(obj);
-			}
-		}
-	});
-}
-
-/**
- * Creates a new, empty scopes container.
- * 
- * @returns {Object} the new scopes container.
- */
-function createScopesContainer() {
-	var retval = {};
-
-	retval[STATICSCOPE] = {};			//Private static container scope
-	retval[PRIVATESCOPE] = {};			//Private container scope
-	retval[PROTECTEDSCOPE] = {};		//Protected scope
-	retval[PROTECTEDSTATICSCOPE] = {};	//Protected static scope
-	retval[PUBLICSCOPE] = {};			//Prototype scope
-	retval[PUBLICSTATICSCOPE] = {};		//Constructor
-	retval[SUPERPROTO] = null;
-
-	return retval;
-}
-
-/**
- * Creates a new function object that provides direct access to the constructor,
- * public, and protected methods and getter/setter properties of the base class.
- * 
- * @param {Object} base - The constructor of the parent class.
- * @param {Object} baseScopes - The scopes container for the parent class.
- */
-function createSuperProto(base, baseScopes) {
-	function getSuperKeys(obj) {
-		var retval = [];
-		
-		while (obj && (typeof(obj) == "object") && (obj !== Object.prototype)) {
-			var descKeys = Object.keys(obj).concat(((hasES6)?Object.getOwnPropertySymbols(obj):[]));
-
-			for (var i=0; i<descKeys.length; ++i) {
-				var key = descKeys[i];
-				var descriptor = Object.getOwnPropertyDescriptor(obj, key);
-
-				if ((descriptor.enumerable) &&
-					(!("value" in descriptor) ||
-					 (typeof(descriptor.value == "function")))) {
-					
-					retval.push(key);
-				}
-			}
-
-			obj = Object.getPrototypeOf(obj);
-		}
-
-		return retval;
-	}
-
-	function getDescriptor(parent, key) {
-		var descriptor = Object.getOwnPropertyDescriptor(parent, key);
-		return {
-			enumerable: true,
-			get: function() {
-				return parent[key]; 
-			}
-		};
-	}
-
-	function defineKeys(dest, keys, src) {
-		//Copy all of the public keys.
-		for (var i=0; i<keys.length; ++i) {
-			var key = keys[i];
-			if (!(key in retval))
-				Object.defineProperty(retval, key, getDescriptor(chain, key));
-		}
-	}
-
-	var retval = {};
-	var chain = base.prototype;
-	Object.setPrototypeOf(retval, Function.prototype);
-
-	defineKeys(retval, getSuperKeys(baseScopes[PROTECTEDSCOPE]), chain);
-	defineKeys(retval, getSuperKeys(baseScopes[PROTECTEDSTATICSCOPE]), chain);
-	defineKeys(retval, getSuperKeys(baseScopes[PUBLICSCOPE]), chain);
-	defineKeys(retval, getSuperKeys(baseScopes[PUBLICSTATICSCOPE]), chain);
-
-	return retval;
-}
-
-/**
- * Takes care of including the scopes of Mixins and Extends into the Class
- * definition.
- *
- * @param {Object} This - the Class constructor being constructed.
- * @param {Object} scopes - Object containing the members sorted by scope.
- */
-function inherit(This, scopes) {
-	var metadata = MetaData.get(This);
-	var definition = metadata.definition;
-	var extended = definition.Extends || null;
-	var mixinList = definition.Mixins || [];
-
-	//First, handle Extends...
-	var eMetadata = MetaData.get(extended);
-	if (eMetadata && eMetadata.isClass) {
-		var extendedScope = eMetadata.scopes;
-		Object.setPrototypeOf(scopes[STATICSCOPE], extendedScope[PROTECTEDSTATICSCOPE]);
-		Object.setPrototypeOf(scopes[PROTECTEDSTATICSCOPE], extendedScope[PROTECTEDSTATICSCOPE]);
-		Object.setPrototypeOf(scopes[PUBLICSTATICSCOPE], extendedScope[PUBLICSTATICSCOPE]);
-		Object.setPrototypeOf(scopes[PUBLICSCOPE], extendedScope[PUBLICSCOPE]);
-		Object.setPrototypeOf(This.prototype, extended.prototype);
-
-		//Don't forget to build the Super() prototype
-		scopes[SUPERPROTO] = createSuperProto(extended, extendedScope);
-	}
-
-	//Then, handle Mixins...
-	var mixer = createScopesContainer();
-	for (var i=0; i<mixinList.length; ++i) {
-		var obj = mixinList[i];
-
-		if (isConstructor(obj)) {
-			//The prototype of a constructor is for non-static scope.
-			extend(mixer[PRIVATESCOPE], obj.prototype);
-			delete mixer[PRIVATESCOPE].constructor;
-
-			cloneAsLinks(obj.prototype, mixer[PROTECTEDSCOPE], mixer[PRIVATESCOPE]);
-			cloneAsLinks(obj.prototype, mixer[PUBLICSCOPE], mixer[PRIVATESCOPE]);
-
-			//The constructor itself is static scope. Just remember to ignore 
-			//the members of Function itself and prototype.
-			var sMixer = {};
-			var fKeys = Object.getOwnPropertyNames(Function.prototype);
-			fKeys.push('prototype');
-			
-			extendIf(function(src, key) {
-				return (src.hasOwnProperty(key) && (fKeys.indexOf(key) == -1));
-			}, obj, sMixer);
-
-			extend(mixer[STATICSCOPE], sMixer);
-			cloneAsLinks(sMixer, mixer[PROTECTEDSTATICSCOPE], mixer[STATICSCOPE]);
-			cloneAsLinks(sMixer, mixer[PUBLICSTATICSCOPE], mixer[STATICSCOPE]);
-		}
-		else if (obj instanceof Object) {
-			extend(mixer[PRIVATESCOPE], obj);
-
-			cloneAsLinks(obj, mixer[PROTECTEDSCOPE], mixer[PRIVATESCOPE]);
-			cloneAsLinks(obj, mixer[PUBLICSCOPE], mixer[PRIVATESCOPE]);
-		}
-		else
-			throw new ClassDefError("Only Objects and Functions can be mixed into a Class!", "Mixins");
-	}
-
-	//After all of that, now it's time to join the mixer to the scopes
-	var list = [PUBLICSCOPE, PUBLICSTATICSCOPE, PROTECTEDSCOPE, PROTECTEDSTATICSCOPE, PRIVATESCOPE, STATICSCOPE];
-	for (var i=0; i<list.length; ++i) {
-		var sName = list[i];
-		Object.setPrototypeOf(mixer[sName], Object.getPrototypeOf(scopes[sName]));
-		Object.setPrototypeOf(scopes[sName], mixer[sName]);
-	}
-
-	cloneAsLinks(scopes[PUBLICSCOPE], This.prototype, null);
-	//Object.setPrototypeOf(This.prototype, Object.getPrototypeOf(scopes[PUBLICSCOPE]));
-}
-
-var Class = (function _Class() {
-	/**
-	 * Class - A constructor factory designed to create functions that
-	 * themselves create fully encapsulating, classical classes in JavaScript.
-	 * It is not necessary to use 'new' when calling Class(...), but doing so
-	 * will not interfere with how Class functions.
-	 *
-	 * @class Class
-	 * @param {string=} name - Name of the new Class constructor function.
-	 * @param {object} definition - Object describing the Class structure
-	 * @returns {Function} - the new Class type constructor
-	 */
-	function Class(name, definition) {
-		if (this instanceof Class)
-			console.warn("No need to use 'new' when declaring a new Class.");
-
-		if (arguments.length === 1) {
-			if (typeof name == "object") {
-				definition = name;
-				name = "";
-			}
-			else {
-				throw new ClassDefError("Where's the Class definition object? At least give me {}!");
-			}
-		}
-
-		var scopes = createScopesContainer();
-		Object.defineProperty(scopes[STATICSCOPE], STATICCONTAINER, { value: true });
-
-		var retval = generateTypeConstructor(name, scopes);
-		scopes[PUBLICSTATICSCOPE] = retval;
-
-		var prototype = populateScopes(scopes, validateDefinitionKeys(definition));
-		prototype.constructor = retval;
-		Object.defineProperty(retval, "prototype", { value: prototype });
-
-		generateMetaData(retval, name, definition, scopes);
-		inherit(retval, scopes);
-
-		if (definition.StaticConstructor &&
-			(typeof(definition.StaticConstructor.value) == "function")) {
-			var target = Instances.get(retval);
-			definition.StaticConstructor.value.call(target);
-		}
-
-		return retval;
-	}
-
-	/**
-	 * Private - An access modifier function. Causes val to be encapsulated as
-	 * only being accessible to direct instances of the class being described.
-	 *
-	 * @memberof Class
-	 * @function
-	 * @param {*} val - A Boxed or unboxed value.
-	 * @returns {Box} A new Box instance, or val if it is a Box instance, marked
-	 * as Private in either case.
-	 */
-	function Private(val) {
-		var retval;
-
-		if (val && val.isBox) {
-			retval = modifyBox(val, { privilege: Privilege.Private });
-		}
-		else {
-			retval = modifyBox(null, { privilege: Privilege.Private }, val);
-		}
-
-		return retval;
-	}
-
-	/**
-	 * Protected - An access modifier function. Causes val to be encapsulated as
-	 * only being accessible to instances of the class being described and its
-	 * subclasses.
-	 *
-	 * @memberof Class
-	 * @function
-	 * @param {*} val - A Boxed or unboxed value.
-	 * @returns {Box} A new Box instance, or val if it is a Box instance, marked
-	 * as Protected in either case.
-	 */
-	function Protected(val) {
-		var retval;
-
-		if (val && val.isBox) {
-			retval = modifyBox(val, { privilege: Privilege.Protected });
-		}
-		else {
-			retval = modifyBox(null, { privilege: Privilege.Protected }, val);
-		}
-
-		return retval;
-	}
-
-	/**
-	 * Public - An access modifier function. Causes val to be encapsulated as
-	 * being openly accessible from the class being described.
-	 *
-	 * @memberof Class
-	 * @function
-	 * @param {*} val - A Boxed or unboxed value.
-	 * @returns {Box} A new Box instance, or val if it is a Box instance, marked
-	 * as Public in either case.
-	 */
-	function Public(val) {
-		var retval;
-
-		if (val && val.isBox) {
-			retval = modifyBox(val, { privilege: Privilege.Public });
-		}
-		else {
-			retval = modifyBox(null, { privilege: Privilege.Public }, val);
-		}
-
-		return retval;
-	}
-
-	/**
-	 * Property - An access modifier function. Requires that val is an object
-	 * with a getter and/or setter method. These are the only 2 members that are
-	 * honored in the object.
-	 *
-	 * @memberof Class
-	 * @function
-	 * @param {Object} val - An object defining the access methods for the
-	 * property. Must contain at leaset one of the following properties.
-	 * @prop {function=} val.get - A function that calculates or retrieves the
-	 * desired value. Takes no parameters.
-	 * @prop {function=} val.set - A function that performs the needed actions
-	 * to ensure that val.get returns the desired value. Takes a single
-	 * parameter.
-	 * @returns {Box} A new Box instance, or val if it is a Box instance, marked
-	 * as a Property in either case.
-	 */
-	function Property(val) {
-		var retval;
-
-		if (val && val.isBox) {
-			retval = modifyBox(val, { isProperty: true });
-		}
-		else {
-			retval = modifyBox(null, { isProperty: true }, val);
-		}
-
-		return retval;
-	}
-
-	/**
-	 * Static - An access modifier function. Causes val to be encapsulated as
-	 * data owned by the constructor function and not the class's prototype.
-	 *
-	 * @memberof Class
-	 * @function
-	 * @param {*} val - A Boxed or unboxed value.
-	 * @returns {Box} A new Box instance, or val if it is a Box instance, marked
-	 * as Static in either case.
-	 */
-	function Static(val) {
-		var retval;
-
-		if (val && val.isBox) {
-			retval = modifyBox(val, { isStatic: true });
-		}
-		else {
-			retval = modifyBox(null, { isStatic: true }, val);
-		}
-
-		return retval;
-	}
-
-	/**
-	 * Final - An access modifier function. Causes val to be encapsulated as
-	 * immutable. If val is a function, it is automatically Final.
-	 *
-	 * @memberof Class
-	 * @function
-	 * @param {*} val - A Boxed or unboxed value.
-	 * @returns {Box} A new Box instance, or val if it is a Box instance, marked
-	 * as Final in either case.
-	 */
-	function Final(val) {
-		var retval;
-
-		if (val && val.isBox) {
-			retval = modifyBox(val, { isFinal: true });
-		}
-		else {
-			retval = modifyBox(null, { isFinal: true }, val);
-		}
-
-		return retval;
-	}
-
-	/**
-	 * Abstract - An access modifier function. Causes val to be encapsulated as
-	 * an undefined method. The parameter val must reference a function.
-	 *
-	 * @memberof Class
-	 * @function
-	 * @param {function} val - A Boxed or unboxed function.
-	 * @returns {Box} A new Box instance, or val if it is a Box instance, marked
-	 * as Abstract in either case.
-	 */
-	function Abstract(val) {
-		var retval;
-
-		if (val && val.isBox) {
-			retval = modifyBox(val, { isAbstract: true });
-		}
-		else {
-			retval = modifyBox(null, { isAbstract: true }, val);
-		}
-
-		return retval;
-	}
-
-	/**
-	 * Delegate - An access modifier function. Causes val to be encapsulated as
-	 * bound method. Attempts to call this method, even after assignment to a
-	 * variable, will always use the owning Class instance or type definition
-	 * (if Static) as its scope. The parameter val must reference a function.
-	 *
-	 * @memberof Class
-	 * @function
-	 * @param {function} val - A Boxed or unboxed function.
-	 * @returns {Box} A new Box instance, or val if it is a Box instance, marked
-	 * as a Delegate method in either case.
-	 */
-	function Delegate(val) {
-		var retval;
-
-		if (val && val.isBox) {
-			retval = modifyBox(val, { isDelegate: true });
-		}
-		else {
-			retval = modifyBox(null, { isDelegate: true }, val);
-		}
-
-		return retval;
-	}
-
-	/**
-	 * Abstract - An access modifier function. Causes val to be tested to see if
-	 * it matches the given type at definition time and at runtime, both on
-	 * input and output.
-	 *
-	 * @memberof Class
-	 * @function
-	 * @param {string|Class} type - A type name string or Class type constructor.
-	 * @param {*} val - A Boxed or unboxed value.
-	 * @returns {Box} A new Box instance, or val if it is a Box instance, marked
-	 * as Type-specific in either case.
-	 */
-	function Type(type, val) {
-		var retval = null;
-
-		var isValid = function isValid(t, v) {
-			return ((v === null) || (v === undefined) ||
-					(t.isInterface && t.isImplementedBy(v)) ||
-					(t.isClass && (v instanceof t)) ||
-					((t === Function) && (v instanceof Function)) ||
-					((t === Date) && (v instanceof Date)) ||
-					((t === String) && (typeof v == "string")) ||
-					((typeof t == "string") && (t.toLowerCase() == typeof v)));
-		};
-
-		if (type && (type.isClass || type.isInterface || (type === Function) ||
-					 (type === String) || (type === Date) ||
-					 ((typeof type == "string") &&
-					  ((type.toLowerCase() === "string") ||
-					   (type.toLowerCase() === "number") ||
-					   (type.toLowerCase() === "boolean") ||
-					   (type.toLowerCase() === "symbol"))))) {
-			if (val instanceof Box) {
-				if (val.isProperty || isSimpleFunction(val.value) || isValid(type, val.value)) {
-					retval = modifyBox(val, { type: type });
-				}
-				else
-					throw new TypeError("Expected value of type '" + type.__name + "'. Found " + val.value);
-			}
-			else if (isValid(type, val)) {
-				retval = modifyBox(null, { type: type }, val);
-			}
-			else
-				throw new TypeError("Expected value of type '" + type.__name + "'. Found " + val);
-		}
-		else
-			throw new TypeError("Type must reference either a Class, an Interface, or an intrinsic type!");
-
-		return retval;
-	}
-
-	function Initialize(_global) {
-		Object.defineProperties(_global, {
-			Private: {
-				enumerable: true,
-				value: Private
-			},
-			Protected: {
-				enumerable: true,
-				value: Protected
-			},
-			Public: {
-				enumerable: true,
-				value: Public
-			},
-			Property: {
-				enumerable: true,
-				value: Property
-			},
-			Static: {
-				enumerable: true,
-				value: Static
-			},
-			Final: {
-				enumerable: true,
-				value: Final
-			},
-			Abstract: {
-				enumerable: true,
-				value: Abstract
-			},
-			Delegate: {
-				enumerable: true,
-				value: Delegate
-			},
-			Type: {
-				enumerable: true,
-				value: Type
-			},
-			Modes: {
-				enumerable: true,
-				value: ClassModes
 			}
 		});
 
-		if (!Object.hasOwnProperty("setPrototypeOf")) {
-			Object.defineProperty(Object, "setPrototypeOf", {
-				enumerable: true,
-				writable: true,
-				value: function setPrototypeOf(obj, proto) {
-					obj.__proto__ = proto;
-					return obj;
-				}
-			})
-		}
+		let ctor = clazz.prototype.constructor || getWrapper(clazz, true);
 
-		if (!Object.hasOwnProperty("getPrototypeOf")) {
-			Object.defineProperty(Object, "getPrototypeOf", {
-				enumerable: true,
-				writable: true,
-				value: function getPrototypeOf(obj) {
-					return obj.__proto__;
+		/**
+		 * Last step. To make this somewhat ergonomic, were going to hijack
+		 * `$` to mean "private" when it's the first characterof the name. it
+		 * could just as easily be `_`, but that's already being used publicly. 
+		 */
+		return new Proxy(ctor, {
+			filter(obj, keys) {
+				let retval = {};
+				for (let key of keys) {
+					Object.defineProperty(retval, key.substring(1), Object.getOwnPropertyDescriptor(obj, key));
+					delete obj[key];
 				}
-			})
-		}
+				return retval;
+			},
+			construct(target, args, newTarget, context) {
+				let pvtKey = clazz[Symbol.privateKey];
+				let protKey = clazz[Symbol.protectedKey];
+				let sig = signatures.get(clazz);
+				if (!pvtKey || !protKey || !sig) {
+					throw new TypeError("Unsigned class encountered in the inheritance chain.");
+				}
+
+				let pvtInit = clazz[Symbol.privateMembers]();
+				let protInit = clazz.hasOwnProperty(Symbol.protectedMembers)
+					? clazz[Symbol.protectedMembers]()
+					: {};
+				let rval;
+				ctorStack.push(clazz);
+				if (context) {
+					Reflect.apply(target, context, args);
+					rval = context;
+				}
+				else {
+					rval = Reflect.construct(target, args, newTarget);
+				}
+
+				Object.hasOwnProperty(rval, pvtKey, {
+					value: new PrivateStore(sig, pvtInit[Symbol.Class.instance])
+				});
+
+				if (pvtInit.hasOwnProperty(Symbol.Class.static)) {
+					Object.defineProperty(clazz, pvtKey, {
+						value: new PrivateStore(sig, pvtInit[Symbol.Class.static])
+					});
+				}
+
+				if (protInit.hasOwnProperty(Symbol.Class.instance)) {
+					let bSig = signatures.get(newTarget);
+					let iProt = protInit[Symbol.Class.instance];
+					let biProt = newTarget
+
+					if (typeof(bSig) == "symbol") {
+
+					}
+				}	
+
+				if (protInit.hasOwnProperty(Symbol.Class.static)) {
+					Object.defineProperty(rval, protKey, {
+						value: new PrivateStore(sig, protInit[Symbol.Class.static])
+					});
+				}
+
+				ctorStack.pop();
+
+				return new Proxy(rval, pHandler);
+			},
+			apply(target, context, args) {
+				let retval;
+				if (clazz === target) {
+					retval = this.construct(target, args, target, context);
+				}
+				else {
+					retval = Reflect.apply(target, context, args);
+				}
+
+				return retval;
+			}
+		});
 	}
 
-	Initialize(Class);
-	Object.defineProperties(Class, {
-		InitializeScope: {
-			enumerable: true,
-			value: Initialize
-		}
-	});
-
-	Object.freeze(Class);
 	return Class;
 })();
 
-if (typeof(module) === "object") {
-	//Use require semantics
-	module.exports = Class;
-}
-else if (hasES6) {
-	//Prevents older engines from throwing.
-	try {
-		eval("export default Class;");
-	} catch(e) {
-		console.warn("No known means of exporting 'Class' namespace!");
-	}
-}
-else {
-	console.warn("No known means of exporting 'Class' namespace!");
-}
+module.exports = Class;

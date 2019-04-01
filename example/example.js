@@ -1,76 +1,82 @@
 var Class = require("../Class");
-Class.InitializeScope((typeof(global) == "object") ? global : window);
 
-//Declare "class SampleBase {}"
-var SampleBase = Class("SampleBase", {
-    //Private Static Data
-    counter: Private(Static(null)),
-
-    //Private Data
-    className: Private("Sample"),
-
-    //Private Method
-    incrementCounter: Private(function incrementCounter() {
-        this.Counter++;
-        this.logCounter();
-    }),
-    logCounter: Private(function logCounter() {
-        console.log(`counter: ${this.counter}`);
-    }),
-
-    //Protected Property
-    Counter: Protected(Property({
-        get: function() { return this.counter; },
-        set: function(val) {
-            if (!isNaN(val)) {
-                this.counter = val;
+var SampleBase = Class(class SampleBase {
+    static [Symbol.Class.privateMembers]() {
+        return {
+            [Symbol.Class.instance]: {
+                className: "Sample",
+                incrementCounter() {
+                    this.$Counter++;
+                    this.$logCounter();
+                },
+                logCounter() {
+                    console.log(`counter: ${this.$counter}`);
+                }
+            },
+            [Symbol.Class.static]: {
+                [Symbol.Class.constructor]() {
+                    console.log("Initializing SampleBase Static Data...");
+                    this.counter = 0;
+                },
+                counter: null
             }
         }
-    })),
+    }
 
-    //Static Constructor
-    StaticConstructor: function() {
-        console.log("Initializing SampleBase Static Data...");
-        this.counter = 0;
-    },
+    static [Symbol.Class.protectedMembers]() {
+        return {
+            [Symbol.Class.instance]: {
+                get Counter() { return this.constructor.$counter; },
+                set Counter(val) { isNaN(val) || (this.counter = val); }
+            }
+        };
+    }
 
     //Instance Constructor
-    Constructor: Public(function() {
-        this.incrementCounter();
+    constructor() {
+        this.$incrementCounter();
         console.log("Created SampleBase instance #" + this.Counter);
-    })
+    }
 });
 
 //Declare descendant class Sample as a singleton
-var Sample = Class("Sample", {
-    Extends: SampleBase,
-
+var Sample = Class(class Sample extends SampleBase {
+    static [Symbol.Class.PrivateMembers]() {
+        return {
+            [Symbol.Class.static]: {
+                canCreate: false,
+                instance: null
+            }
+        };
+    }
     //Private Static Data
-    instance: Private(Static(null)),
-
-    //Instance Constructor
-    Constructor: Private(function() {
-        this.Super();
+    constructor() {
+        if (!Sample.$canCreate) {
+            throw new TypeError("This class is a singleton. Do not use `new`.");
+        }
+        super();
         console.log("Created Sample instance");
-    }),
+    }
 
     //Public Static Method
-    getInstance: Public(Static(function() {
+    static getInstance() {
         //'this' inside a static function refers to the
         //class static scope.
         if (!this.instance) {
-            this.instance = this.Instance(new this.Self());
-            ++this.instance.Counter;
-            console.log(`Created ${this.instance.Counter} instances.`);
+            this.$canCreate = true;
+            this.$instance = new this();
+            this.$canCreate = false;
+            ++this.$instance.$Counter;
+            console.log(`Created ${this.$instance.$Counter} instances.`);
         }
 
-        return this.instance;
-    })),
+        return this.$instance;
+    }
 
     //Public Instance Method
-    getInstanceCount: Public(function() {
+    getInstanceCount() {
         return this.Counter;
-    })
+    }
 });
 
 var sample = Sample.getInstance();

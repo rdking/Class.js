@@ -207,8 +207,17 @@ const Class = (() => {
 
 			
 			if (hasCProt) { //If the class has protected members
-				let cPrivData = clazz[Symbol.Class.privateMembers]();
-				let cProtData = clazz[Symbol.Class.protectedMembers]();
+				let pvtKey = clazz[Symbol.privateKey];
+				let protKey = clazz[Symbol.protectedKey];
+				let sig = signatures.get(clazz);
+				let pvtInit = clazz[Symbol.Class.privateMembers]();
+				let protInit = (clazz[Symbol.Class.protectedMembers] || (() => {}))();
+				let pvtInit = new PrivateStore(sig, pvtInit[Symbol.Class.static] || {});
+				let protInit = new PrivateStore(sig);
+
+				if (!pvtKey || !protKey || !sig) {
+					throw new TypeError("Unsigned class encountered in the inheritance chain.");
+				}
 				
 				function stageStatic(cls) {
 					if (cProtData.hasOwnProperty(Symbol.Class.static)) {
@@ -217,13 +226,19 @@ const Class = (() => {
 					}
 				}
 
+				//Take care of the owned properties
 				stageStatic(clazz);
 				
+				//Take care of the inherited properties
 				if (hasBProt) {
 					stageStatic(newTarget);
 				}
 
-				linkProtected(cProtData, cPrivData, sData);
+				//If there's any protected static members
+				if (protInit.hasOwnProperty(Symbol.Class.static)) {
+					linkProtected(protInit[Symbol.Class.static], 
+								  pvtInit[Symbol.Class.static] || {}, sData);
+				}
 			}
 			if (hasBProt) {
 				let pdata = protectedMembers.get(newTarget);

@@ -1,4 +1,4 @@
-var Class = require("../Class");
+var Class = require("java-class");
 
 var SampleBase = Class(class SampleBase {
     static [Symbol.Class.privateMembers]() {

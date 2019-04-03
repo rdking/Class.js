@@ -5,7 +5,7 @@
  * idea of creating an exotic object that is a normal property of the instance.
  */
 
-const PrivateStore = require("./PrivateStore");
+const PrivateStore = require("./lib/PrivateStore");
 
 if (!("Class" in Symbol)) {
 	Object.defineProperty(Symbol, "Class", {
@@ -121,6 +121,52 @@ const Class = (() => {
 		return !!stack2 && (stack2.join('\n') == stack.join('\n'));
 	}
 
+	/**
+	 * Creates an accessor property from src\[key\] to dest\[name\] that
+	 * preserves the value of the context object.
+	 * @param {string|Symbol} key - Target key being linked
+	 * @param {string|Symbol} name - Friendly name for the target key
+	 * @param {Object} src - Object containing the target property
+	 * @param {Object} dest - Object to receive the link to src
+	 */
+	function link(key, name, src, dest) {
+		Object.defineProperty(dest, name, {
+			get() { return Reflect.get(src, key, this); },
+			set(v) { Reflect.set(src, key, v, this); }
+		});
+	}
+	
+	/**
+	 * Links all protected properties to the private container for use in the
+	 * current instance being constructed.
+	 * @param {Object} src - The object with the target properties
+	 * @param {Object} dest - The object to receive the target properties 
+	 * @param {Object} param2 - The metadata object with information about the
+	 * properties being targeted.
+	 */
+	function linkProtected(src, dest, { own, inherited, map }) {
+		for (let name of own) {
+			link(name, name, src, dest);
+		}
+		
+		Object.assign(src, inherited);
+		for (let name in inherited) {
+			link(name, map[name], src, dest);
+		}
+	}
+	
+	/**
+	 * This is the complete list of every reasonably inheritable class 
+	 * in ES, plus Class and null. These base classes represent a stopping point
+	 * because its impossible for any of them to have inherited from Class.
+	 */
+	const BaseClasses = Object.getOwnPropertyNames(global)
+							  .filter(name => /^[A-Z]\w+[a-z]$/.test(name) && 
+									  (typeof(global[name]) == "function"))
+							  .map(name => global[name])
+							  .concat([Class, null]);
+
+
 	function Class(clazz) {
 		if (this instanceof Class)
 			throw new TypeError("Class is not a constructor.");
@@ -149,17 +195,35 @@ const Class = (() => {
 		 * via a Symbol-named accessor property created in that class's private
 		 * container.
 		 */
+		let newTarget = Object.getPrototypeOf(clazz);
+		newTarget = BaseClasses.includes(newTarget) ? null : newTarget;
 		let hasCProt = clazz.hasOwnProperty(Symbol.Class.protectedMembers);
 		let hasBProt = (newTarget !== clazz) && 
 						newTarget.hasOwnProperty(Symbol.protectedMembers);
 		if (hasCProt || hasBProt) {
-			let iProtInit = {};
-			let data = { own: [], inherited: {}, map: {}};
+			let sProtInit = {};
+			let iData = { own: [], inherited: {}, map: {}};
+			let sData = { own: [], inherited: {}, map: {}};
 
-			if (hasCProt) {
-				let idata = clazz[Symbol.Class.protectedMembers]();
-				Object.assign(iProtInit, idata);
-				data.own = Object.keys(idata);
+			
+			if (hasCProt) { //If the class has protected members
+				let cPrivData = clazz[Symbol.Class.privateMembers]();
+				let cProtData = clazz[Symbol.Class.protectedMembers]();
+				
+				function stageStatic(cls) {
+					if (cProtData.hasOwnProperty(Symbol.Class.static)) {
+						let protMembers = cProtData[Symbol.Class.static];
+						Object.assign(sProtInit, protMembers);
+					}
+				}
+
+				stageStatic(clazz);
+				
+				if (hasBProt) {
+					stageStatic(newTarget);
+				}
+
+				linkProtected(cProtData, cPrivData, sData);
 			}
 			if (hasBProt) {
 				let pdata = protectedMembers.get(newTarget);
@@ -320,27 +384,14 @@ const Class = (() => {
 					value: new PrivateStore(sig, pvtInit[Symbol.Class.instance])
 				});
 
-				if (pvtInit.hasOwnProperty(Symbol.Class.static)) {
-					Object.defineProperty(clazz, pvtKey, {
-						value: new PrivateStore(sig, pvtInit[Symbol.Class.static])
-					});
-				}
-
 				if (protInit.hasOwnProperty(Symbol.Class.instance)) {
-					let bSig = signatures.get(newTarget);
-					let iProt = protInit[Symbol.Class.instance];
-					let biProt = newTarget
+					let pdata = protectedMembers.get(clazz);
 
-					if (typeof(bSig) == "symbol") {
-
-					}
-				}	
-
-				if (protInit.hasOwnProperty(Symbol.Class.static)) {
 					Object.defineProperty(rval, protKey, {
-						value: new PrivateStore(sig, protInit[Symbol.Class.static])
+						value: new PrivateStore(sig, protInit[Symbol.Class.instance])
 					});
-				}
+					linkProtected(rval[protKey], rval[pvtKey], pdata);
+				}	
 
 				ctorStack.pop();
 

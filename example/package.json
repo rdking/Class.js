@@ -1,0 +1,25 @@
+{
+  "name": "example",
+  "version": "1.0.0",
+  "description": "Class.js example code",
+  "main": "example.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rdking/Class.js/example"
+  },
+  "keywords": [
+    "javascript",
+    "class",
+    "private",
+    "protected",
+    "properties",
+    "property",
+    "field",
+    "encapsulation"
+  ],
+  "author": "Ranando D. King",
+  "license": "Apache-2.0"
+}

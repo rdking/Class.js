@@ -201,7 +201,6 @@ const Class = (() => {
 		let hasBProt = (newTarget !== clazz) && 
 						newTarget.hasOwnProperty(Symbol.protectedMembers);
 		if (hasCProt || hasBProt) {
-			let sProtInit = {};
 			let iData = { own: [], inherited: {}, map: {}};
 			let sData = { own: [], inherited: {}, map: {}};
 
@@ -212,34 +211,49 @@ const Class = (() => {
 				let sig = signatures.get(clazz);
 				let pvtInit = clazz[Symbol.Class.privateMembers]();
 				let protInit = (clazz[Symbol.Class.protectedMembers] || (() => {}))();
-				let pvtInit = new PrivateStore(sig, pvtInit[Symbol.Class.static] || {});
-				let protInit = new PrivateStore(sig);
+				let pvtData = pvtInit[Symbol.Class.static] || {};
+				let protData = protInit[Symbol.Class.static] || {};
+				let inheritance = protectedMembers.get(newTarget);
 
 				if (!pvtKey || !protKey || !sig) {
 					throw new TypeError("Unsigned class encountered in the inheritance chain.");
 				}
 				
-				function stageStatic(cls) {
-					if (cProtData.hasOwnProperty(Symbol.Class.static)) {
-						let protMembers = cProtData[Symbol.Class.static];
-						Object.assign(sProtInit, protMembers);
-					}
-				}
+				Object.defineProperties(clazz, pvtKey, {
+					value: new PrivateStore(sig, pvtData)
+				});
 
-				//Take care of the owned properties
-				stageStatic(clazz);
-				
-				//Take care of the inherited properties
-				if (hasBProt) {
-					stageStatic(newTarget);
-				}
-
-				//If there's any protected static members
+				//If the class has protected static members
 				if (protInit.hasOwnProperty(Symbol.Class.static)) {
-					linkProtected(protInit[Symbol.Class.static], 
-								  pvtInit[Symbol.Class.static] || {}, sData);
+					sData.own = Object.getOwnPropertyNames(protData);
 				}
+				
+				//If the base class has protected members
+				if (hasBProt) {
+					let bPvtData = newTarget[pvtKey];
+					bPvtData[sig] = true;
+					//If there are protected static members
+					try {
+						if (inheritance) {
+							//Copy the private definitions into inherited on a new name
+							for (let name of inheritance.own) {
+								let desc = Object.getOwnPropertyDescriptor(bPvtData[name]);
+								let newName = Symbol(`${newTarget.name}.$${name}`);
+								sData.map[newName] = name;
+								Object.defineProperty(sData.inherited, newName, desc);
+							}
+						}
+					} finally {
+						bPvtData[sig] = false;
+					}
+					Object.defineProperty(clazz, protKey, {
+						value: new PrivateStore(sig, protData)
+					});
+				}
+
+				linkProtected(protData, privData, sData);
 			}
+
 			if (hasBProt) {
 				let pdata = protectedMembers.get(newTarget);
 
@@ -344,8 +358,11 @@ const Class = (() => {
 							args[0] = pvt;
 							args[1] = prop.substring(1);
 							pvt[sig] = true;
-							retval = Reflect[handler](...args);
-							pvt[sig] = false;
+							try {
+								retval = Reflect[handler](...args);
+							} finally {
+								pvt[sig] = false;
+							}
 						}
 					}
 					else {
@@ -400,7 +417,7 @@ const Class = (() => {
 				});
 
 				if (protInit.hasOwnProperty(Symbol.Class.instance)) {
-					let pdata = protectedMembers.get(clazz);
+					let pdata = protectedMembers.get(clazz.prototype);
 
 					Object.defineProperty(rval, protKey, {
 						value: new PrivateStore(sig, protInit[Symbol.Class.instance])

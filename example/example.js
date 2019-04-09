@@ -41,7 +41,7 @@ var SampleBase = Class(class SampleBase {
 
 //Declare descendant class Sample as a singleton
 var Sample = Class(class Sample extends SampleBase {
-    static [Symbol.Class.PrivateMembers]() {
+    static [Symbol.Class.privateMembers]() {
         return {
             [Symbol.Class.static]: {
                 canCreate: false,

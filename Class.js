@@ -62,9 +62,11 @@ function getCleanStack(offset = 0) {
 }
 
 const Class = (() => {
+	const IDENTITY = Symbol();				//Used to test Proxies against non-proxies
 	const ClassSignature = Symbol();		//Used to recognize proxy objects
 	const signatures = new WeakMap;			//Per class, private store keys
-	const protectedMembers = new WeakMap;	//
+	const protectedMembers = new WeakMap;	//Maps for connecting protected accessors
+	const wrappers = new WeakMap;			//Mapping from wrappers to original functions
 	const frames = new WeakMap;				//Stack frames for target functions
 	const callStack = [];					//Last called monitored functions
 	const ctorStack = [];					//Last called constructors
@@ -79,15 +81,15 @@ const Class = (() => {
 	 */
 	function getWrapper(fn, construct) {
 		let retval = function (...args) {
-			frames.set(fn, getCleanStack(1))
+			frames.set(fn, getCleanStack(1));
 			callStack.push(fn);
 			let retval = (construct) ? Reflect.construct(fn, args, new.target)
-				: fn.call(this, ...args);
+									 : fn.call(this, ...args);
 			callStack.pop();
 			frames.delete(fn);
 			return retval;
 		}
-
+		
 		//Mask the wrapper function to look like the original.
 		Object.defineProperties(retval, {
 			toString: {
@@ -106,14 +108,8 @@ const Class = (() => {
 		});
 		retval.prototype = fn.prototype;
 		Object.setPrototypeOf(retval, Object.getPrototypeOf(fn));
+		wrappers.set(retval, fn);
 
-		if (construct) {
-			let keys = getRelevantKeys(fn);
-			for (let key of keys) {
-				let desc = Object.getOwnPropertyDescriptor(fn, key);
-				Object.defineProperty(retval, key, desc);
-			}
-		}
 		return retval;
 	}
 
@@ -175,14 +171,25 @@ const Class = (() => {
 			let desc = Object.getOwnPropertyDescriptor(obj, key);
 			if (desc) {
 				for (let prop of ["value", "get", "set"]) {
-					if ((prop in desc) && (typeof (desc[prop]) == "function")) {
+					let fn = desc[prop];
+					if ((prop in desc) && (typeof(fn) == "function")) {
+						let construct = key == "constructor";
+						
 						//Stamp the class identitiy on the function.
-						Object.defineProperty(desc[prop], Symbol.Class.classObject, {
+						Object.defineProperty(fn, Symbol.Class.classObject, {
 							value: clazz
 						});
 						//Wrap the function so we can authorize access for it as needed.
-						desc[prop] = getWrapper(desc[prop], key == "constructor");
+						desc[prop] = getWrapper(fn, construct);
 						Object.defineProperty(obj, key, desc);
+						if (construct) {
+							let fnKeys = getRelevantKeys(fn);
+							for (let fnKey of fnKeys) {
+								let fnDesc = Object.getOwnPropertyDescriptor(fn, fnKey);
+								Object.defineProperty(desc[prop], fnKey, fnDesc);
+							}
+							prepareMethods(clazz, desc[prop]);
+						}
 					}
 				}
 			}
@@ -198,8 +205,9 @@ const Class = (() => {
 		return Object.getOwnPropertyNames(obj)
 					 .concat(Object.getOwnPropertySymbols(obj))
 					 .filter(name => (name == "constructor") ||
-									  (!Function.prototype.hasOwnProperty(name) &&
-									   !Object.values(Symbol.Class).includes(name)));
+					 				 (name != "prototype") &&
+									 (!Function.prototype.hasOwnProperty(name) &&
+									  !Object.values(Symbol.Class).includes(name)));
 	}
 	
 	/**
@@ -255,84 +263,90 @@ const Class = (() => {
 		newTarget = BaseClasses.includes(newTarget) ? null : 
 					newTarget.toString().includes("[native code]") ? null : newTarget;
 		let hasCProt = clazz.hasOwnProperty(Symbol.Class.protectedMembers);
-		let hasBProt = !!newTarget && (newTarget !== clazz) && 
-						newTarget.hasOwnProperty(Symbol.Class.protectedMembers);
-		if (hasCProt || hasBProt) {
-			let pvtKey = clazz[Symbol.Class.privateKey];
-			let protKey = clazz[Symbol.Class.protectedKey];
-			let sig = signatures.get(clazz);
-			let pvtInit = clazz[Symbol.Class.privateMembers]();
-			let protInit = (clazz[Symbol.Class.protectedMembers] || (() => {}))();
-			let inheritance = protectedMembers.get(newTarget);
+		let hasBProt = !!newTarget && (newTarget[IDENTITY] !== clazz) && 
+						newTarget[IDENTITY].hasOwnProperty(Symbol.Class.protectedMembers);
+		let pvtKey = clazz[Symbol.Class.privateKey];
+		let sig = signatures.get(clazz);
+		let pvtInit = clazz[Symbol.Class.privateMembers]();
+		let pvtData = pvtInit[Symbol.Class.static] || {};
+
+		//If this class has non-public properties...
+		if (hasCProt || hasBProt || pvtInit.hasOwnProperty(Symbol.Class.static)) {
+			Object.defineProperty(clazz, pvtKey, {
+				value: new PrivateStore(sig, pvtData)
+			});
 			
-			function createLinkMap(type) {
-				let info = { own: [], inherited: {}, map: {}};
-				let pvtData = pvtInit[type] || {};
-				let protData = protInit[type] || {};
+			prepareMethods(clazz, pvtData);
+		}		
 
-				if (!pvtKey || !protKey || !sig) {
-					throw new TypeError("Unsigned class encountered in the inheritance chain.");
-				}
+		//If this class has protected properties...
+		if (hasCProt || hasBProt) {
+			let protKey = clazz[Symbol.Class.protectedKey];
+			let sInfo = { own: [], inherited: {}, map: {}};
+			let iInfo = { own: [], inherited: {}, map: {}};
 
-				for (let obj of [pvtData, protData]) {
-					prepareMethods(clazz, obj);
-				}
+			//Collect info about this class's own protected members
+			if (hasCProt) {
+				let protInit = (clazz[Symbol.Class.protectedMembers] || (() => { return {}; }))();
 
-				//If any private members exist (protected *IS* private)
-				if (pvtData || protData) {
-					Object.defineProperty(clazz, pvtKey, {
-						value: new PrivateStore(sig, pvtData)
-					});
-				}
-				
-				//If the class has protected member
-				if (hasCProt && protInit.hasOwnProperty(type)) {
-					info.own = Object.getOwnPropertyNames(protData);
-				}
-				
-				//If the base class has protected members
-				if (hasBProt) {
-					let bPvtData = newTarget[pvtKey];
-					bPvtData[sig] = true;
-					//If there are protected static members
-					try {
-						if (inheritance) {
-							function inherit(oldName, desc) {
-								let newName = Symbol(`${newTarget.name}.$${oldName}`);
-								info.map[newName] = oldName;
-								Object.defineProperty(info.inherited, newName, desc);
-							}
-							//Copy the private definitions into inherited on a new name
-							for (let name of inheritance.own) {
-								let desc = Object.getOwnPropertyDescriptor(bPvtData[name]);
-								inherit(name, desc);
-							}
-
-							let keys = Object.getOwnPropertyNames(inheritance.map)
-											 .concat(Object.getOwnPropertySymbols(inheritance.map))
-											 .filter(key => !Object.values(info.map).includes(key));
-							for (let key of keys) {
-								let desc = Object.getOwnPropertyDescriptor(inheritance.inherited, key);
-								inherit(inheritance.map[key], desc);	
-							}
-						}
-					} finally {
-						bPvtData[sig] = false;
+				let initOwnProtected = (obj, type, info) => {
+					if (obj.hasOwnProperty(type)) {
+						let ownData = obj[type];
+						info.own = Object.getOwnPropertyNames(ownData)
+										 .concat(Object.getOwnPropertySymbols(ownData));
 					}
-					Object.defineProperty(clazz, protKey, {
-						value: new PrivateStore(sig, protData)
-					});
 				}
-
-				if (type === Symbol.Class.static)
-					linkProtected(protData, pvtData, info);
-
-				let pmKey = (type === Symbol.Class.static) ? clazz : clazz.prototype;
-				protectedMembers.set(pmKey, info);
+				
+				for (let pair of [{ type: Symbol.Class.static, info: sInfo },
+								  { type: Symbol.Class.instance, info: iInfo }]) {
+					initOwnProtected(protInit, pair.type, pair. sInfo);
+				}
 			}
+			
+			//Now collect info about any inherited members
+			if (hasBProt) {
+				let bClazz = newTarget[IDENTITY];
+				let bPvtKey = bClazz[Symbol.Class.privateKey];
+				let bSig = signatures.get(bClazz);
+				let bPvtData = bClazz[bPvtKey];
 
-			for (let key of Object.getOwnPropertySymbols(protInit)) {
-				createLinkMap(key);
+				let initInheritedProtected = (owner, type, info) => {
+					let bInfo = protectedMembers.get(owner);
+
+					let inherit = (mbrKeys, container, mapHasName) => {
+						for (let bMbrKey of mbrKeys) {
+							let ufName = mapHasName ? bInfo.map[bMbrKey] : bMbrKey;
+							let desc = Object.getOwnPropertyDescriptor(container, bMbrKey);
+							let name = new Symbol(`${bClazz.name}.$${ufName.toString()}`);
+							
+							info.map[name] = ufName;
+							Object.defineProperty(info.inherited, name, desc);
+						}
+					}
+
+					//Map all of the "own" protected members into our inheritance
+					inherit(bInfo.own, bPvtData);
+					//Map all of the "inherited" protected members into our inheritance
+					inherit(Object.getOwnPropertySymbols(bInfo.inherited), bInfo.inherited, true);
+				};
+
+				bPvtData[bSig] = true;
+				try {
+					//Pull in all of the inheritance
+					for (let set of [{ owner: bClazz, type: Symbol.Class.static, info: sInfo },
+									  { owner: bClazz.prototype, type: Symbol.Class.instance, info: iInfo }]) {
+						initInheritedProtected(set.owner, set.type, set. sInfo);
+					}
+
+					//Link all of the static protected members into the static private data.
+					linkProtected(pvtData, protData, sInfo);
+					//Add the protected data maps.
+					privateMembers(clazz, sInfo);
+					privateMembers(clazz.prototype, iInfo);
+				}
+				finally {
+					bPvtData[bSig] = false;
+				}
 			}
 		}
 
@@ -360,11 +374,11 @@ const Class = (() => {
 						 * work on any platform.
 						 */
 						if (testStack()) {
-							clazz = callStack[callStack.length - 1][Symbol.classObject];
+							clazz = callStack[callStack.length - 1][Symbol.Class.classObject];
 						}
 
 						if (typeof (clazz) == "function") {
-							let pvt = target[clazz[Symbol.privateKey]];
+							let pvt = target[clazz[Symbol.Class.privateKey]];
 							let sig = signatures.get(clazz);
 
 							if (!pvt || !sig) {
@@ -384,6 +398,9 @@ const Class = (() => {
 								pvt[sig] = false;
 							}
 						}
+					}
+					else if (prop === IDENTITY) {
+						retval = wrappers.get(target);
 					}
 					else {
 						retval = Reflect[handler](...args);
@@ -411,16 +428,16 @@ const Class = (() => {
 				return retval;
 			},
 			construct(target, args, newTarget, context) {
-				let pvtKey = clazz[Symbol.privateKey];
-				let protKey = clazz[Symbol.protectedKey];
+				let pvtKey = clazz[Symbol.Class.privateKey];
+				let protKey = clazz[Symbol.Class.protectedKey];
 				let sig = signatures.get(clazz);
 				if (!pvtKey || !protKey || !sig) {
 					throw new TypeError("Unsigned class encountered in the inheritance chain.");
 				}
 
-				let pvtInit = clazz[Symbol.privateMembers]();
-				let protInit = clazz.hasOwnProperty(Symbol.protectedMembers)
-					? clazz[Symbol.protectedMembers]()
+				let pvtInit = clazz[Symbol.Class.privateMembers]();
+				let protInit = clazz.hasOwnProperty(Symbol.Class.protectedMembers)
+					? clazz[Symbol.Class.protectedMembers]()
 					: {};
 				let rval;
 				ctorStack.push(clazz);
@@ -486,11 +503,12 @@ const Class = (() => {
 						 * work on any platform.
 						 */
 						if (testStack()) {
-							clazz = callStack[callStack.length - 1][Symbol.classObject];
+							clazz = callStack[callStack.length - 1][Symbol.Class.classObject];
 						}
 
 						if (typeof (clazz) == "function") {
-							let pvt = target[clazz[Symbol.privateKey]];
+							target = wrappers.get(target) || target;
+							let pvt = target[clazz[Symbol.Class.privateKey]];
 							let sig = signatures.get(clazz);
 
 							if (!pvt || !sig) {
@@ -510,6 +528,9 @@ const Class = (() => {
 								pvt[sig] = false;
 							}
 						}
+					}
+					else if (prop === IDENTITY) {
+						retval = wrappers.get(target);
 					}
 					else {
 						retval = Reflect[handler](...args);

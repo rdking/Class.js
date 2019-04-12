@@ -353,12 +353,11 @@ const Class = (() => {
 
 				bPvtData[bSig] = true;
 				try {
-					//Pull in all of the static inheritance
-					initInheritedProtected(bClazz, bProtKey, protInit, { owner: bClazz, type: Symbol.Class.static, info: sInfo });
-					// for (let set of [{ owner: bClazz, type: Symbol.Class.static, info: sInfo },
-					// 				  { owner: bClazz.prototype, type: Symbol.Class.instance, info: iInfo }]) {
-					// 	initInheritedProtected(bClazz, bProtKey, protInit, set);
-					// }
+					// Pull in all of the static inheritance
+					for (let set of [{ owner: bClazz, type: Symbol.Class.static, info: sInfo },
+									  { owner: bClazz.prototype, type: Symbol.Class.instance, info: iInfo }]) {
+						initInheritedProtected(bClazz, bProtKey, protInit, set);
+					}
 				}
 				finally {
 					bPvtData[bSig] = false;

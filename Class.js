@@ -221,6 +221,32 @@ const Class = (() => {
 									 (!Function.prototype.hasOwnProperty(name) &&
 									  !Object.values(Symbol.Class).includes(name)));
 	}
+
+	function initInheritedProtected(bClazz, bProtKey, protInit, { owner, type, info }) {
+		let bInfo = protectedMembers.get(owner);
+		let bProtData = bClazz[bProtKey] || {};
+
+		let inherit = (mbrKeys, container, mapHasName) => {
+			for (let bMbrKey of mbrKeys) {
+				let ufName = mapHasName ? bInfo.map[bMbrKey] : bMbrKey;
+				let desc = Object.getOwnPropertyDescriptor(container, bMbrKey);
+				let name = Symbol(`${bClazz.name}.$${ufName.toString()}`);
+				
+				info.map[name] = ufName;
+				if (desc) {
+					Object.defineProperty(info.inherited, name, desc);
+				}
+				else {
+					link(bMbrKey, name, protInit[type], info.inherited);
+				}
+			}
+		}
+
+		//Map all of the "own" protected members into our inheritance
+		inherit(bInfo.own, bProtData);
+		//Map all of the "inherited" protected members into our inheritance
+		inherit(Object.getOwnPropertySymbols(bInfo.inherited), bInfo.inherited, true);
+	}
 	
 	/**
 	 * This is the complete list of every reasonably inheritable class 
@@ -323,41 +349,15 @@ const Class = (() => {
 				let bProtKey = bClazz[Symbol.Class.protectedKey];
 				let bSig = signatures.get(bClazz);
 				let bPvtData = bClazz[bPvtKey];
-				let bProtData = bClazz[bProtKey] || {};
 				let protInit = (bClazz[Symbol.Class.protectedMembers] || (() => { return {}; }))();
-
-				let initInheritedProtected = ({ owner, type, info }) => {
-					let bInfo = protectedMembers.get(owner);
-
-					let inherit = (mbrKeys, container, mapHasName) => {
-						for (let bMbrKey of mbrKeys) {
-							let ufName = mapHasName ? bInfo.map[bMbrKey] : bMbrKey;
-							let desc = Object.getOwnPropertyDescriptor(container, bMbrKey);
-							let name = Symbol(`${bClazz.name}.$${ufName.toString()}`);
-							
-							info.map[name] = ufName;
-							if (desc) {
-								Object.defineProperty(info.inherited, name, desc);
-							}
-							else {
-								link(bMbrKey, name, protInit[type], info.inherited);
-							}
-						}
-					}
-
-					//Map all of the "own" protected members into our inheritance
-					inherit(bInfo.own, bProtData);
-					//Map all of the "inherited" protected members into our inheritance
-					inherit(Object.getOwnPropertySymbols(bInfo.inherited), bInfo.inherited, true);
-				};
 
 				bPvtData[bSig] = true;
 				try {
 					//Pull in all of the static inheritance
-					initInheritedProtected({ owner: bClazz, type: Symbol.Class.static, info: sInfo });
+					initInheritedProtected(bClazz, bProtKey, protInit, { owner: bClazz, type: Symbol.Class.static, info: sInfo });
 					// for (let set of [{ owner: bClazz, type: Symbol.Class.static, info: sInfo },
 					// 				  { owner: bClazz.prototype, type: Symbol.Class.instance, info: iInfo }]) {
-					// 	initInheritedProtected(set);
+					// 	initInheritedProtected(bClazz, bProtKey, protInit, set);
 					// }
 				}
 				finally {

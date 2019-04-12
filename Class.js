@@ -126,6 +126,21 @@ const Class = (() => {
 	}
 
 	/**
+	 * Creates a property descriptor for an accessor property to access a
+	 * target property on a given object.
+	 *
+	 * @param {Object} src - the object with the target property
+	 * @param {string|Symbol} key - name of the target property
+	 * @returns {Object} for use with Object.defineProperty.
+	 */
+	function makeLinkDesc(src, key) {
+		return {
+			get() { return Reflect.get(src, key, this); },
+			set(v) { Reflect.set(src, key, v, this); }
+		};
+	}
+
+	/**
 	 * Creates an accessor property from src\[key\] to dest\[name\] that
 	 * preserves the value of the context object.
 	 * @param {string|Symbol} key - Target key being linked
@@ -134,10 +149,7 @@ const Class = (() => {
 	 * @param {Object} dest - Object to receive the link to src
 	 */
 	function link(key, name, src, dest) {
-		Object.defineProperty(dest, name, {
-			get() { return Reflect.get(src, key, this); },
-			set(v) { Reflect.set(src, key, v, this); }
-		});
+		Object.defineProperty(dest, name, makeLinkDesc(src, key));
 	}
 	
 	/**
@@ -269,7 +281,7 @@ const Class = (() => {
 		let sig = signatures.get(clazz);
 		let pvtInit = clazz[Symbol.Class.privateMembers]();
 		let pvtData = pvtInit[Symbol.Class.static] || {};
-
+		
 		//If this class has non-public properties...
 		if (hasCProt || hasBProt || pvtInit.hasOwnProperty(Symbol.Class.static)) {
 			Object.defineProperty(clazz, pvtKey, {
@@ -278,18 +290,19 @@ const Class = (() => {
 			
 			prepareMethods(clazz, pvtData);
 		}		
-
+		
 		//If this class has protected properties...
 		if (hasCProt || hasBProt) {
-			let protKey = clazz[Symbol.Class.protectedKey];
 			let sInfo = { own: [], inherited: {}, map: {}};
 			let iInfo = { own: [], inherited: {}, map: {}};
+			let protInit = (clazz[Symbol.Class.protectedMembers] || (() => { return {}; }))();
+			let protData = {};
 
 			//Collect info about this class's own protected members
 			if (hasCProt) {
-				let protInit = (clazz[Symbol.Class.protectedMembers] || (() => { return {}; }))();
+				protData = protInit[Symbol.Class.static] || protData;
 
-				let initOwnProtected = (obj, type, info) => {
+				let initOwnProtected = (obj, { type, info }) => {
 					if (obj.hasOwnProperty(type)) {
 						let ownData = obj[type];
 						info.own = Object.getOwnPropertyNames(ownData)
@@ -299,7 +312,7 @@ const Class = (() => {
 				
 				for (let pair of [{ type: Symbol.Class.static, info: sInfo },
 								  { type: Symbol.Class.instance, info: iInfo }]) {
-					initOwnProtected(protInit, pair.type, pair. sInfo);
+					initOwnProtected(protInit, pair);
 				}
 			}
 			
@@ -307,47 +320,56 @@ const Class = (() => {
 			if (hasBProt) {
 				let bClazz = newTarget[IDENTITY];
 				let bPvtKey = bClazz[Symbol.Class.privateKey];
+				let bProtKey = bClazz[Symbol.Class.protectedKey];
 				let bSig = signatures.get(bClazz);
 				let bPvtData = bClazz[bPvtKey];
+				let bProtData = bClazz[bProtKey] || {};
+				let protInit = (bClazz[Symbol.Class.protectedMembers] || (() => { return {}; }))();
 
-				let initInheritedProtected = (owner, type, info) => {
+				let initInheritedProtected = ({ owner, type, info }) => {
 					let bInfo = protectedMembers.get(owner);
 
 					let inherit = (mbrKeys, container, mapHasName) => {
 						for (let bMbrKey of mbrKeys) {
 							let ufName = mapHasName ? bInfo.map[bMbrKey] : bMbrKey;
 							let desc = Object.getOwnPropertyDescriptor(container, bMbrKey);
-							let name = new Symbol(`${bClazz.name}.$${ufName.toString()}`);
+							let name = Symbol(`${bClazz.name}.$${ufName.toString()}`);
 							
 							info.map[name] = ufName;
-							Object.defineProperty(info.inherited, name, desc);
+							if (desc) {
+								Object.defineProperty(info.inherited, name, desc);
+							}
+							else {
+								link(bMbrKey, name, protInit[type], info.inherited);
+							}
 						}
 					}
 
 					//Map all of the "own" protected members into our inheritance
-					inherit(bInfo.own, bPvtData);
+					inherit(bInfo.own, bProtData);
 					//Map all of the "inherited" protected members into our inheritance
 					inherit(Object.getOwnPropertySymbols(bInfo.inherited), bInfo.inherited, true);
 				};
 
 				bPvtData[bSig] = true;
 				try {
-					//Pull in all of the inheritance
-					for (let set of [{ owner: bClazz, type: Symbol.Class.static, info: sInfo },
-									  { owner: bClazz.prototype, type: Symbol.Class.instance, info: iInfo }]) {
-						initInheritedProtected(set.owner, set.type, set. sInfo);
-					}
-
-					//Link all of the static protected members into the static private data.
-					linkProtected(pvtData, protData, sInfo);
-					//Add the protected data maps.
-					privateMembers(clazz, sInfo);
-					privateMembers(clazz.prototype, iInfo);
+					//Pull in all of the static inheritance
+					initInheritedProtected({ owner: bClazz, type: Symbol.Class.static, info: sInfo });
+					// for (let set of [{ owner: bClazz, type: Symbol.Class.static, info: sInfo },
+					// 				  { owner: bClazz.prototype, type: Symbol.Class.instance, info: iInfo }]) {
+					// 	initInheritedProtected(set);
+					// }
 				}
 				finally {
 					bPvtData[bSig] = false;
 				}
 			}
+
+			//Link all of the static protected members into the static private data.
+			linkProtected(protData, pvtData, sInfo);
+			//Add the protected data maps.
+			protectedMembers.set(clazz, sInfo);
+			protectedMembers.set(clazz.prototype, iInfo);
 		}
 
 		const pHandler = new Proxy({}, {
